@@ -1,0 +1,4 @@
+interface:
+  display_name: "SettingManager 스택 규약"
+  short_description: "SettingManager TypeScript ESM과 Vitest 개발 규약"
+  default_prompt: "SettingManager TypeScript ESM과 Vitest 규약을 확인해줘."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "SettingManager 개발 하네스"
+  short_description: "SettingManager 개발을 위한 4단계 팀 워크플로 규약"
+  default_prompt: "SettingManager 기능을 설계, 구현, 검증, 문서화 순서로 진행해줘."
