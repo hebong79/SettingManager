@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SettingManager · 옵션</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>SettingManager</h1>
+    <nav>
+      <a href="/">카메라 제어</a>
+      <a href="/options" class="active">옵션</a>
+    </nav>
+  </header>
+
+  <main class="narrow">
+    <section class="card">
+      <h2>시뮬레이터<span class="tag">baro_calory backend-core</span></h2>
+      <div class="body">
+        <div class="row">
+          <div class="field" style="flex-basis:100%">
+            <label for="simulatorUrl">시뮬레이터 URL</label>
+            <input id="simulatorUrl" type="text" placeholder="http://127.0.0.1:8080">
+          </div>
+        </div>
+        <div class="row">
+          <button id="simulatorSave" class="primary">시뮬레이터 URL 저장</button>
+        </div>
+        <p class="hint">타입이 <b>시뮬레이터</b>인 기기가 이 주소를 씁니다(제어 URL 을 따로 적으면 그쪽이 우선). 주차면 목록도 여기서 조회합니다.</p>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>기기 (장치)<span class="tag" id="activeTag">-</span></h2>
+      <div class="body">
+        <div class="row">
+          <div class="field" style="flex-basis:100%">
+            <label for="cameraSelect">카메라 선택</label>
+            <select id="cameraSelect"></select>
+          </div>
+        </div>
+        <div class="row">
+          <button id="makeActive">이 기기를 활성으로</button>
+          <button id="reload">전체 새로고침</button>
+        </div>
+        <p class="hint">활성 기기는 카메라 제어 페이지가 기본으로 사용하는 카메라입니다.</p>
+
+        <div class="row" style="margin-top:14px; border-top:1px solid var(--line); padding-top:14px">
+          <div class="field">
+            <label for="newCameraId">새 기기 ID</label>
+            <input id="newCameraId" type="text" placeholder="예: real-camera-3" maxlength="64">
+          </div>
+          <div class="field">
+            <label for="newCameraKind">타입</label>
+            <select id="newCameraKind">
+              <option value="hucoms">Hucoms PTZ (실카메라 · UE 시뮬)</option>
+              <option value="backend-core">baro_calory backend-core 경유</option>
+            </select>
+          </div>
+          <button id="addCamera">+ 기기 추가</button>
+        </div>
+        <p class="hint">ID 만 정하면 등록됩니다. 나머지 접속 정보는 아래 편집 폼에서 채우세요. ID 는 나중에 바꿀 수 없습니다.</p>
+      </div>
+    </section>
+
+    <section class="card" id="editCard">
+      <h2><span id="editTitle">기기 편집</span><span class="tag" id="dirtyTag" hidden>저장 안 됨</span></h2>
+      <div class="body">
+        <div class="row">
+          <div class="field">
+            <label for="fieldId">ID</label>
+            <input id="fieldId" type="text" readonly>
+          </div>
+          <div class="field">
+            <label for="fieldLabel">이름</label>
+            <input id="fieldLabel" data-field="label" type="text">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field" style="flex-basis:100%">
+            <label for="fieldKind">타입</label>
+            <select id="fieldKind" data-field="kind">
+              <option value="hucoms">Hucoms PTZ (실카메라 · UE 시뮬)</option>
+              <option value="backend-core">baro_calory backend-core 경유</option>
+            </select>
+          </div>
+        </div>
+        <p class="hint" id="kindHint" style="margin:-4px 0 10px"></p>
+
+        <div class="row">
+          <div class="field" style="flex-basis:100%">
+            <label for="fieldControlUrl">제어 URL</label>
+            <input id="fieldControlUrl" data-field="controlUrl" type="text">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="fieldUsername">계정</label>
+            <input id="fieldUsername" data-field="username" type="text" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="fieldPassword">비밀번호</label>
+            <input id="fieldPassword" data-field="password" type="password" value="" autocomplete="new-password">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field" style="flex-basis:100%">
+            <label for="fieldStreamUrl">영상 URL</label>
+            <input id="fieldStreamUrl" data-field="streamUrl" type="text" placeholder="rtsp://192.168.0.153:554/stream1">
+          </div>
+        </div>
+        <p class="hint" id="streamHint" style="margin:-4px 0 10px"></p>
+
+        <div class="row">
+          <div class="field">
+            <label for="fieldTimeout">타임아웃 (ms)</label>
+            <input id="fieldTimeout" data-field="timeoutMs" type="number" min="500" max="60000" step="100">
+          </div>
+        </div>
+
+        <div class="row">
+          <button id="applyCamera" class="primary">이 기기 적용</button>
+          <button id="testCamera">연결 테스트</button>
+          <button id="revertCamera">되돌리기</button>
+          <button id="deleteCamera" class="danger" style="margin-left:auto">삭제</button>
+        </div>
+
+        <div id="testResult" class="hint" style="margin:0 0 10px"></div>
+
+        <p class="hint">
+          「이 기기 적용」을 누르면 <code>config/config.json</code> 에 즉시 저장됩니다(재기동 불필요).<br>
+          비밀번호는 저장된 값이 화면으로 돌아오지 않습니다 — <b>비워 두면 기존 비밀번호가 유지</b>되고, 바꿀 때만 입력합니다.<br>
+          <b>영상 URL 은 스킴이 경로를 가릅니다</b> — <code>rtsp://</code> 는 ffmpeg 전사, <code>http://</code> 는 연속 MJPEG 중계(UE 시뮬 직결 포트), 비우면 스냅샷 폴링.<br>
+          「연결 테스트」는 <b>저장 없이</b> 지금 화면의 값으로 PTZ 를 한 번 읽어 봅니다 — 카메라를 움직이지 않습니다.
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <div id="status"></div>
+  <script type="module" src="/options.js"></script>
+</body>
+</html>

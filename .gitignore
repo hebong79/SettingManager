@@ -1,0 +1,11 @@
+node_modules/
+dist/
+logs/
+_workspace_prev*/
+
+# 실제 접속 정보(카메라 IP·계정·비밀번호)가 들어가는 파일. 절대 커밋하지 않는다.
+# 새 머신에서는 config.example.json 을 복사해 채운다.
+SettingMain/config/config.json
+
+# 런타임 산출물
+SettingMain/config/presets.json

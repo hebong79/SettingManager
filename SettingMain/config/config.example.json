@@ -1,0 +1,50 @@
+{
+  "_comment": "SettingManager 설정 예시. config.json 으로 복사해 실제 값을 채운다. config.json 은 .gitignore 대상이다.",
+  "server": {
+    "host": "127.0.0.1",
+    "port": 13030
+  },
+  "simulator": {
+    "baseUrl": "http://127.0.0.1:8080"
+  },
+  "streaming": {
+    "ffmpegPath": "ffmpeg",
+    "rtspTransport": "tcp",
+    "fps": 5,
+    "jpegQuality": 5,
+    "startupTimeoutMs": 10000
+  },
+  "activeCameraId": "real-camera-1",
+  "cameras": [
+    {
+      "id": "real-camera-1",
+      "label": "리얼 카메라 1",
+      "kind": "hucoms",
+      "controlUrl": "http://<카메라IP>:80",
+      "username": "<계정>",
+      "password": "<비밀번호>",
+      "streamUrl": "rtsp://<카메라IP>:554/stream1",
+      "timeoutMs": 5000
+    },
+    {
+      "id": "real-camera-2",
+      "label": "리얼 카메라 2",
+      "kind": "hucoms",
+      "controlUrl": "http://<카메라IP>:80",
+      "username": "<계정>",
+      "password": "<비밀번호>",
+      "streamUrl": "rtsp://<카메라IP>:554/stream1",
+      "timeoutMs": 5000
+    },
+    {
+      "id": "simulator-1",
+      "label": "UE 시뮬 1",
+      "kind": "hucoms",
+      "controlUrl": "http://<시뮬IP>:8081",
+      "username": "<계정>",
+      "password": "<비밀번호>",
+      "streamUrl": "http://<시뮬IP>:8091/",
+      "timeoutMs": 5000
+    }
+  ]
+}
