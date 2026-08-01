@@ -28,6 +28,10 @@ let slewFrom = { panpos: 0, tiltpos: 0, zoompos: 0 };
 /** Hucoms 와이어를 흉내 낸다: text/plain `key = value`. */
 const fakeFetch = vi.fn(async (input: string | URL | Request) => {
   const url = new URL(String(input));
+  if (url.pathname === '/api/discovery/presets') return new Response(JSON.stringify({ cameraId: 'backend-device', presets: [{ id: 'd1', name: '입구' }], busy: false }));
+  if (url.pathname === '/api/discovery/presets/d1/points') return new Response(JSON.stringify({ points: [{ id: 'pt-1', x: 10, y: 20 }] }));
+  if (url.pathname === '/api/center-box') return new Response(JSON.stringify({ ok: true }));
+  if (url.pathname === '/api/center') return new Response(JSON.stringify({ error: 'frame unavailable' }), { status: 422 });
   const action = url.searchParams.get('action');
   if (action === 'getptzfpos') {
     if (slewSteps > 0) {
@@ -108,9 +112,12 @@ describe('상태·카메라', () => {
 
   it('GET /api/cameras 는 비밀번호를 싣지 않는다', async () => {
     const { body } = await api('/api/cameras');
+    expect(body.activeCameraId).toBe('cam-a');
     expect(body.cameras).toHaveLength(2);
+    expect(Object.keys(body.cameras[0]).sort()).toEqual(['controlUrl', 'hasPassword', 'id', 'kind', 'label', 'streamUrl', 'timeoutMs', 'username']);
     expect(body.cameras[0]).not.toHaveProperty('password');
     expect(body.cameras[0].hasPassword).toBe(true);
+    expect(JSON.stringify(body)).not.toContain('secret');
   });
 
   it('POST /api/cameras/active 는 설정 파일에 반영된다', async () => {
@@ -346,6 +353,47 @@ describe('주차면', () => {
   });
 });
 
+describe('BackendCore 탐색 프록시', () => {
+  it('backend-core 활성 카메라에서 discovery 응답과 backend cameraId를 전달한다', async () => {
+    await api('/api/cameras/active', { method: 'POST', body: JSON.stringify({ id: 'sim-1' }) });
+    const { status, body } = await api('/api/discovery/presets');
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ cameraId: 'backend-device', presets: [{ id: 'd1' }] });
+  });
+
+  it('backend-core가 아닌 카메라는 고급 작업을 명시적으로 막는다', async () => {
+    const { status, body } = await api('/api/discovery/presets');
+    expect(status).toBe(409);
+    expect(body.error).toMatch(/BackendCore/);
+  });
+
+  it.each([
+    ['/api/discovery/presets', undefined],
+    ['/api/discovery/calibration/start', { mode: 'full' }],
+    ['/api/center', { x: 10, y: 20 }],
+    ['/api/discovery/plate-home/start', { presetId: 'd1' }],
+    ['/api/vla/tour', { zoomIn: false, saveSpots: false }],
+  ])('hucoms 활성 카메라는 고급 경로 %s 를 409로 막는다', async (path, body) => {
+    const response = await api(path, { method: body ? 'POST' : 'GET', body: body ? JSON.stringify(body) : undefined });
+    expect(response.status).toBe(409);
+    expect(response.body.error).toMatch(/BackendCore/);
+  });
+
+  it('discovery point에 box 정본이 없으므로 센터+줌은 서버에서 명시적으로 미지원 처리한다', async () => {
+    await api('/api/cameras/active', { method: 'POST', body: JSON.stringify({ id: 'sim-1' }) });
+    const response = await api('/api/center-box', { method: 'POST', body: JSON.stringify({ startX: 1, startY: 2, endX: 3, endY: 4 }) });
+    expect(response.status).toBe(501);
+    expect(response.body.error).toMatch(/box 좌표/);
+  });
+
+  it('BackendCore capability 오류(422)는 프록시에서도 보존한다', async () => {
+    await api('/api/cameras/active', { method: 'POST', body: JSON.stringify({ id: 'sim-1' }) });
+    const response = await api('/api/center', { method: 'POST', body: JSON.stringify({ x: 10, y: 20 }) });
+    expect(response.status).toBe(422);
+    expect(response.body.error).toMatch(/422/);
+  });
+});
+
 describe('설정(옵션 페이지)', () => {
   it('GET /api/settings 는 비밀번호를 싣지 않는다', async () => {
     const { body } = await api('/api/settings');
@@ -436,6 +484,98 @@ describe('영상·정적 파일', () => {
     expect(html).toContain('id="applyCamera"');
     // 폼만 있는 페이지는 한쪽 영역만 쓴다
     expect(html).toContain('<main class="narrow">');
+  });
+
+  it('/discovery 는 항상 보이는 고급 UI와 BackendCore 연결 안내를 제공한다', async () => {
+    const response = await fetch(`${base}/discovery`);
+    const html = await response.text();
+    expect(html).toContain('주차면 탐색');
+    expect(html).toContain('탐색 프리셋');
+    expect(html).toContain('주차면 점');
+    expect(html).toContain('자동 작업');
+    expect(html).toContain('캘리브레이션');
+    expect(html).toContain('번호판 호밍');
+    expect(html).toContain('VLA 투어');
+    expect(html).toContain('개별 센터+줌 (미지원)');
+    expect(html).toContain('id="advanced"');
+    expect(html).not.toContain('id="advanced" hidden');
+    expect(html).toContain('<div class="layout discovery-layout">');
+    expect(html).toContain('<section id="discoveryTarget" class="card">');
+    expect(html).toContain('<aside id="discoveryViewer" class="discovery-view" aria-label="선택 카메라 영상">');
+    expect(html.indexOf('id="discoveryTarget"')).toBeLessThan(html.indexOf('id="discoveryViewer"'));
+    expect(html.indexOf('id="discoveryViewer"')).toBeLessThan(html.indexOf('id="advanced"'));
+    expect(html).toContain('id="cameraNote"');
+    expect(html).toContain('id="stream"');
+    expect(html).toContain('class="placeholder" id="streamPlaceholder"');
+    expect(html).toContain('id="streamTag" aria-live="polite"');
+    expect(html).toContain('alt="선택한 카메라의 영상"');
+    expect(html).toContain('id="streamStart"');
+    expect(html).toContain('id="streamStop"');
+    expect(html).toContain('id="snapshotOnce"');
+    expect(html).toContain('type="button" aria-controls="stream" disabled>시작');
+    expect(html).toContain('type="button" aria-controls="stream" disabled>정지');
+    expect(html).toContain('type="button" aria-controls="stream" disabled>스냅샷 1장');
+    expect(html.indexOf('id="streamStart"')).toBeLessThan(html.indexOf('id="advanced"'));
+    expect(html).toContain('href="/options"');
+    expect(html).toContain('aria-live="polite"');
+    expect(html).toContain('id="status" role="status" aria-live="polite" aria-atomic="true"');
+    expect(html).toContain('/discovery.js');
+  });
+
+  it('discovery CSS는 데스크톱 좌우 grid와 모바일 DOM 순서를 보존한다', async () => {
+    const css = await readFile(join(process.cwd(), 'web', 'app.css'), 'utf8');
+
+    expect(css).toContain('.discovery-layout {');
+    expect(css).toContain('grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);');
+    expect(css).toContain('"target viewer"');
+    expect(css).toContain('"advanced viewer"');
+    expect(css).toContain('#discoveryTarget { grid-area: target; }');
+    expect(css).toContain('#discoveryViewer { grid-area: viewer; min-width: 0; }');
+    expect(css).toContain('#advanced { grid-area: advanced; min-width: 0; }');
+    expect(css).toContain('#advanced > .card { width: 100%; }');
+    expect(css).toContain('@media (min-width: 1101px)');
+    expect(css).toContain('#discoveryViewer { position: sticky; top: 72px; }');
+    expect(css).toContain('@media (max-width: 1100px)');
+    expect(css).toContain('"target"\n      "viewer"\n      "advanced";');
+    expect(css).toContain('#discoveryViewer { position: static; }');
+    expect(css).toContain('.discovery-stream-actions .row { justify-content: flex-end; }');
+  });
+
+  it('discovery 정적 계약은 활성 BackendCore 이중 게이트와 안전한 비활성 상태를 보존한다', async () => {
+    const source = await readFile(join(process.cwd(), 'web', 'discovery.js'), 'utf8');
+    const html = await readFile(join(process.cwd(), 'web', 'discovery.html'), 'utf8');
+
+    // 선택한 카메라가 활성 ID와 같고 BackendCore인 경우만 고급 API를 쓸 수 있다.
+    expect(source).toContain("c.id===activeCameraId && c.kind==='backend-core'");
+    // 비활성 시 먼저 poller를 해제하고, discovery 조회·새 poller는 advanced 분기 안에서만 시작한다.
+    expect(source).toContain('clearInterval(poller); poller=0;');
+    expect(source).toContain('if (advanced) {');
+    expect(source).toContain('await loadPresets(); await poll(); poller=setInterval(poll,1500);');
+    // 고급 영역 내 모든 native form control을 토글하며 centerBox만은 항상 disabled다.
+    expect(source).toContain("querySelectorAll('input, select, button')");
+    expect(source).toContain("control.disabled = disabled || control.id === 'centerBox';");
+    expect(source).toContain("control.id === 'centerBox' ? 'BackendCore discovery point는 box 좌표를 저장하지 않습니다'");
+    // Hucoms/활성 불일치 안내에서 기존 옵션 화면과 활성화 절차를 제공한다.
+    expect(source).toContain('<a href="/options">/options</a>');
+    expect(source).toContain('먼저 <strong>활성으로 선택</strong>을 누르세요');
+    // 선택 카메라만으로 읽기 URL을 만들며, 활성 카메라나 고급 API를 변경하지 않는다.
+    expect(source).toContain('/api/stream?cameraId=${encodeURIComponent(cameraId)}&t=${Date.now()}');
+    expect(source).toContain('/api/snapshot?cameraId=${encodeURIComponent(cameraId)}&t=${Date.now()}');
+    expect(source).toContain("$('cameraSelect').addEventListener('change', () => { stopStream();");
+    expect(source).toContain("addEventListener('pagehide', () => { stopStream(); clearInterval(poller); poller=0; });");
+    expect(source).toContain("image.removeAttribute('src');");
+
+    // 레이아웃 재배치 뒤에도 discovery.js가 직접 소비하는 모든 ID는 정확히 한 번 남아야 한다.
+    const consumedIds = new Set([...source.matchAll(/\$\('([^']+)'\)/g)].map((match) => match[1]));
+    for (const id of consumedIds) {
+      expect(html.match(new RegExp(`id="${id}"`, 'g'))).toHaveLength(1);
+    }
+  });
+
+  it('점 추가 UI는 선택된 기존 점과 무관하게 collection POST를 만든다', async () => {
+    const source = await readFile(join(process.cwd(), 'web', 'discovery.js'), 'utf8');
+    expect(source).toContain("const pointId=method==='POST'?undefined:q.id");
+    expect(source).toContain('points${pointId?');
   });
 
   it('web/ 밖으로 나가는 경로는 거부한다', async () => {

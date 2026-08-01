@@ -7,6 +7,21 @@ description: SettingManager의 기능 구현, 버그 수정, 리팩터링, 부�
 
 `architect → developer → qa-tester → documenter` 순서로 실행한다. 역할 정의는 `.codex/agents/`에 있다. 최종 소스·문서는 정식 경로에, 중간 산출물은 `_workspace/`에 보존한다.
 
+## 역할 모델 배정
+
+사용자가 별도 변경을 지시할 때까지 역할별 모델은 다음과 같이 배정한다.
+
+| 역할 | 모델 | 책임 |
+|---|---|---|
+| architect | `gpt-5.6-sol` | 코드 변경 전 설계와 계약·수용 기준 확정 |
+| developer | `gpt-5.6-terra` | 승인된 설계 범위의 구현 |
+| verification | `gpt-5.6-terra` | 개발 결과의 독립 코드·계약 검토 |
+| qa | `gpt-5.6-terra` | 실제 실행, Vitest 및 사용자 시나리오 검증 |
+| documenter | `gpt-5.6-luna` | 실제 코드·QA 근거 기반의 한글 문서화와 영향도 분석 |
+
+환경이 역할별 고정 모델을 강제하는 경우에는 사용자 지정 모델을 우선할 수 있는 일반 에이전트로
+같은 책임을 수행하고, 산출물 경로·검증 기준·재시도 규칙은 이 하네스를 그대로 따른다.
+
 ## 0. 시작 확인
 
 1. `memo/memo.md`, `memo/INDEX.md`, 기존 `docs/*.md`, 기존 `_workspace/`를 읽는다.

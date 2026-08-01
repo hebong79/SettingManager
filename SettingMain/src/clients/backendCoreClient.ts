@@ -18,6 +18,9 @@ export interface BackendCoreClientOptions {
   fetchImpl?: typeof fetch;
 }
 
+/** BackendCore discovery 데이터는 이 서비스에 저장하지 않고 그대로 전달한다. */
+export type BackendCoreJson = Record<string, unknown>;
+
 export class BackendCoreClient implements CameraDriver {
   readonly kind = 'backend-core';
   readonly cameraId: string;
@@ -74,6 +77,51 @@ export class BackendCoreClient implements CameraDriver {
     });
   }
 
+  async discovery(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown): Promise<BackendCoreJson> {
+    return this.json<BackendCoreJson>(method, path, body);
+  }
+
+  async listDiscoveryPresets(): Promise<BackendCoreJson> {
+    return this.discovery('GET', '/api/discovery/presets');
+  }
+
+  async createDiscoveryPreset(body: BackendCoreJson): Promise<BackendCoreJson> {
+    return this.discovery('POST', '/api/discovery/presets', body);
+  }
+
+  async updateDiscoveryPreset(id: string, body: BackendCoreJson): Promise<BackendCoreJson> {
+    return this.discovery('PUT', `/api/discovery/presets/${encodeURIComponent(id)}`, body);
+  }
+
+  async deleteDiscoveryPreset(id: string): Promise<BackendCoreJson> {
+    return this.discovery('DELETE', `/api/discovery/presets/${encodeURIComponent(id)}`);
+  }
+
+  async gotoDiscoveryPreset(id: string): Promise<BackendCoreJson> {
+    return this.discovery('POST', `/api/discovery/presets/${encodeURIComponent(id)}/goto`);
+  }
+
+  async discoveryPoints(method: 'GET' | 'POST' | 'PUT' | 'DELETE', presetId: string, pointId?: string, body?: BackendCoreJson): Promise<BackendCoreJson> {
+    const root = `/api/discovery/presets/${encodeURIComponent(presetId)}/points`;
+    return this.discovery(method, pointId ? `${root}/${encodeURIComponent(pointId)}` : root, body);
+  }
+
+  async calibration(action: 'start' | 'stop' | 'status', body?: BackendCoreJson): Promise<BackendCoreJson> {
+    return this.discovery(action === 'status' ? 'GET' : 'POST', `/api/calibration/${action}`, body);
+  }
+
+  async center(body: BackendCoreJson, withBox = false): Promise<BackendCoreJson> {
+    return this.discovery('POST', withBox ? '/api/center-box' : '/api/center', body);
+  }
+
+  async plateHome(action: 'start' | 'stop' | 'status', body?: BackendCoreJson): Promise<BackendCoreJson> {
+    return this.discovery(action === 'status' ? 'GET' : 'POST', `/api/discovery/plate-home/${action}`, body);
+  }
+
+  async vlaTour(body: BackendCoreJson): Promise<BackendCoreJson> {
+    return this.discovery('POST', '/api/vla/tour', body);
+  }
+
   private async json<T>(method: string, path: string, body?: unknown): Promise<T> {
     const response = await this.send(method, path, body);
     const text = await response.text();
@@ -102,7 +150,7 @@ export class BackendCoreClient implements CameraDriver {
       const detail = await response.text().catch(() => '');
       throw new CameraDriverError(
         `backend-core HTTP ${response.status}${detail ? `: ${detail.slice(0, 200)}` : ''}`,
-        response.status === 501 ? 501 : 502,
+        [409, 422, 501].includes(response.status) ? response.status : 502,
       );
     }
     return response;

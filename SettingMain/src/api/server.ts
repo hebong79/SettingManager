@@ -1,6 +1,7 @@
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { CameraDriverError } from '../clients/cameraDriver.js';
 import { createDriver, findCamera } from '../clients/driverFactory.js';
+import { BackendCoreClient } from '../clients/backendCoreClient.js';
 import { waitForSettle, type SettleOptions } from '../clients/waitForSettle.js';
 import type { ConfigStore } from '../config/configStore.js';
 import { ConfigError, mergeSettings, toPublicCamera } from '../config/normalize.js';
@@ -54,6 +55,13 @@ async function handle(req: IncomingMessage, res: ServerResponse, deps: ServerDep
   // --- 상태 -------------------------------------------------------------------
   if (method === 'GET' && pathname === '/api/health') {
     sendJson(res, 200, { ok: true, service: 'settingmanager', activeCameraId: deps.configStore.get().activeCameraId });
+    return;
+  }
+
+  // --- BackendCore 탐색·보정 ---------------------------------------------------
+  // 로컬 presets/slots와 정본이 다르므로 새 namespace 에서만 프록시한다.
+  if (pathname.startsWith('/api/discovery/') || pathname === '/api/center' || pathname === '/api/center-box' || pathname === '/api/vla/tour') {
+    await handleDiscovery(req, res, deps, pathname, method);
     return;
   }
 
@@ -257,6 +265,71 @@ async function handle(req: IncomingMessage, res: ServerResponse, deps: ServerDep
   }
 
   sendError(res, 404, `찾을 수 없습니다: ${method} ${pathname}`);
+}
+
+async function handleDiscovery(req: IncomingMessage, res: ServerResponse, deps: ServerDeps, pathname: string, method: string): Promise<void> {
+  const config = deps.configStore.get();
+  const camera = findCamera(config);
+  if (camera.kind !== 'backend-core') {
+    throw new HttpError(409, 'BackendCore 카메라에서만 주차면 탐색·캘리브레이션·센터링을 실행할 수 있습니다');
+  }
+  // BackendCore discovery point는 x/y/name만 영속화한다. 별도 box 정본을 만들지 않는
+  // 한 point 기반 "센터+줌"은 성공 경로가 없으므로, 직접 box를 받아 우회시키지 않는다.
+  if (pathname === '/api/center-box') {
+    throw new HttpError(501, 'BackendCore discovery point는 box 좌표를 저장하지 않아 개별 센터+줌을 지원하지 않습니다');
+  }
+  const client = createDriver(camera, config, deps.fetchImpl);
+  if (!(client instanceof BackendCoreClient)) throw new HttpError(501, '현재 카메라는 BackendCore 고급 제어를 지원하지 않습니다');
+  const body = ['POST', 'PUT'].includes(method) ? await readJsonBody(req) : undefined;
+  const preset = /^\/api\/discovery\/presets\/([^/]+)(?:\/points(?:\/([^/]+))?)?(\/goto)?$/.exec(pathname);
+  let result: Record<string, unknown>;
+  if (pathname === '/api/discovery/presets' && ['GET', 'POST'].includes(method)) {
+    result = method === 'GET' ? await client.listDiscoveryPresets() : await client.createDiscoveryPreset(body!);
+  } else if (preset) {
+    const presetId = decodeURIComponent(preset[1]!);
+    const pointId = preset[2] ? decodeURIComponent(preset[2]) : undefined;
+    if (preset[3] && method === 'POST') result = await client.gotoDiscoveryPreset(presetId);
+    else if (pathname.includes('/points')) {
+      if (!['GET', 'POST', 'PUT', 'DELETE'].includes(method)) throw new HttpError(404, `찾을 수 없습니다: ${method} ${pathname}`);
+      result = await client.discoveryPoints(method as 'GET' | 'POST' | 'PUT' | 'DELETE', presetId, pointId, body);
+    } else if (!pointId && ['PUT', 'DELETE'].includes(method)) {
+      result = method === 'PUT' ? await client.updateDiscoveryPreset(presetId, body!) : await client.deleteDiscoveryPreset(presetId);
+    } else throw new HttpError(404, `찾을 수 없습니다: ${method} ${pathname}`);
+  } else if (pathname === '/api/discovery/calibration/status' && method === 'GET') result = await client.calibration('status');
+  else if (pathname === '/api/discovery/calibration/start' && method === 'POST') result = await client.calibration('start', calibrationBody(body!));
+  else if (pathname === '/api/discovery/calibration/stop' && method === 'POST') result = await client.calibration('stop');
+  else if (pathname === '/api/discovery/plate-home/status' && method === 'GET') result = await client.plateHome('status');
+  else if (pathname === '/api/discovery/plate-home/start' && method === 'POST') result = await client.plateHome('start', plateHomeBody(body!));
+  else if (pathname === '/api/discovery/plate-home/stop' && method === 'POST') result = await client.plateHome('stop');
+  else if (pathname === '/api/center' && method === 'POST') result = await client.center(centerBody(body!));
+  else if (pathname === '/api/vla/tour' && method === 'POST') result = await client.vlaTour(tourBody(body!));
+  else throw new HttpError(404, `찾을 수 없습니다: ${method} ${pathname}`);
+  sendJson(res, 200, { cameraId: camera.id, ...result });
+}
+
+function calibrationBody(body: Record<string, unknown>): Record<string, unknown> {
+  const mode = requireString(body, 'mode');
+  if (mode !== 'full' && mode !== 'verify') throw new HttpError(400, 'mode 는 full 또는 verify 여야 합니다');
+  return { mode };
+}
+function centerBody(body: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = { x: requireNumber(body, 'x'), y: requireNumber(body, 'y') };
+  for (const key of ['frameWidth', 'frameHeight', 'speed']) { const value = optionalNumber(body, key); if (value !== undefined) result[key] = value; }
+  return result;
+}
+function plateHomeBody(body: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = { presetId: requireString(body, 'presetId') };
+  if (body.pointIds !== undefined) {
+    if (!Array.isArray(body.pointIds) || !body.pointIds.every((id) => typeof id === 'string' && id.trim())) throw new HttpError(400, 'pointIds 는 비어 있지 않은 문자열 배열이어야 합니다');
+    result.pointIds = body.pointIds;
+  }
+  return result;
+}
+function tourBody(body: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = { saveSpots: false };
+  const maxSpots = optionalNumber(body, 'maxSpots'); if (maxSpots !== undefined) result.maxSpots = maxSpots;
+  if (body.zoomIn !== undefined) { if (typeof body.zoomIn !== 'boolean') throw new HttpError(400, 'zoomIn 은 boolean 이어야 합니다'); result.zoomIn = body.zoomIn; }
+  return result;
 }
 
 /** multipart/x-mixed-replace 로 프레임을 밀어 넣는다. 브라우저는 <img src> 로 그대로 받는다. */
