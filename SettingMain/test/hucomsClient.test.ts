@@ -93,6 +93,28 @@ describe('HucomsClient.goPtz', () => {
   });
 });
 
+describe('HucomsClient.centerPoint', () => {
+  it('Hucoms 공식 point-centering CGI에 1920×1080 논리 좌표를 보낸다', async () => {
+    const fetchImpl = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => textResponse('rc = 0'));
+    await client(fetchImpl as unknown as typeof fetch).centerPoint({ x: 1400, y: 800 });
+
+    const url = new URL(fetchImpl.mock.calls[0]![0] as string);
+    expect(url.pathname).toBe('/cgi-bin/control/ptz_centering.cgi');
+    expect(url.searchParams.get('action')).toBe('setcenter');
+    expect(url.searchParams.get('type')).toBe('point');
+    expect(url.searchParams.get('center.pointx')).toBe('1400');
+    expect(url.searchParams.get('center.pointy')).toBe('800');
+    expect(url.searchParams.get('id')).toBe('admin');
+    expect(url.searchParams.get('passwd')).toBe('secret');
+  });
+
+  it.each([{ x: -1, y: 0 }, { x: 1921, y: 0 }, { x: 0, y: 1081 }, { x: 1.5, y: 0 }])('프레임 밖 또는 소수 좌표 %j는 전송 전에 거부한다', async (point) => {
+    const fetchImpl = vi.fn();
+    await expect(client(fetchImpl as unknown as typeof fetch).centerPoint(point)).rejects.toThrow(/1920×1080/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
 describe('HucomsClient.getSnapshot', () => {
   it('JPEG SOI 가 있으면 그대로 돌려준다', async () => {
     const jpeg = Buffer.from([0xff, 0xd8, 0x01, 0x02, 0xff, 0xd9]);

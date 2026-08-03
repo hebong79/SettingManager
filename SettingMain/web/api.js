@@ -30,12 +30,18 @@ export const api = {
   ptz: (cameraId) => request('GET', `/api/ptz?cameraId=${encodeURIComponent(cameraId)}`),
   moveAbsolute: (cameraId, ptz) => request('POST', '/api/ptz/absolute', { cameraId, ...ptz }),
   nudge: (cameraId, axis, delta) => request('POST', '/api/ptz/nudge', { cameraId, axis, delta }),
+  centerPoint: (cameraId, point) => request('POST', '/api/ptz/center', { cameraId, ...point }),
 
   presets: (cameraId) => request('GET', `/api/presets?cameraId=${encodeURIComponent(cameraId)}`),
   addPreset: (cameraId, name, ptz) => request('POST', '/api/presets', { cameraId, name, ptz }),
   updatePreset: (id, change) => request('PUT', `/api/presets/${encodeURIComponent(id)}`, change),
   removePreset: (id) => request('DELETE', `/api/presets/${encodeURIComponent(id)}`),
   gotoPreset: (id) => request('POST', `/api/presets/${encodeURIComponent(id)}/goto`),
+
+  devicePresetCapability: (cameraId) => request('GET', `/api/device-preset-capability?cameraId=${encodeURIComponent(cameraId)}`),
+  devicePresets: (cameraId) => request('GET', `/api/cameras/${encodeURIComponent(cameraId)}/device-presets`),
+  goDevicePreset: (cameraId, number, mode) => request('POST', `/api/cameras/${encodeURIComponent(cameraId)}/device-presets/${number}/go`, { mode }),
+  syncDevicePresetCoordinate: (cameraId, number) => request('POST', `/api/cameras/${encodeURIComponent(cameraId)}/device-presets/${number}/sync-coordinate`, {}),
 
   slots: (cameraId) => request('GET', `/api/slots?cameraId=${encodeURIComponent(cameraId)}`),
 

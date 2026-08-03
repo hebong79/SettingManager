@@ -1,5 +1,5 @@
 import { clampPtz, type PtzRaw } from '../domain/ptz.js';
-import { CameraDriverError, type CameraDriver, type Slot } from './cameraDriver.js';
+import { CameraDriverError, type CameraDriver, type CenterPoint, type Slot } from './cameraDriver.js';
 
 /**
  * baro_calory backend-core 의 REST 제어면 드라이버(시뮬레이터 포함).
@@ -57,6 +57,10 @@ export class BackendCoreClient implements CameraDriver {
     });
   }
 
+  async centerPoint(point: CenterPoint): Promise<void> {
+    await this.center({ x: point.x, y: point.y, frameWidth: 1920, frameHeight: 1080, speed: 50 });
+  }
+
   async getSnapshot(): Promise<Buffer> {
     const response = await this.send('GET', '/api/snapshot');
     return Buffer.from(await response.arrayBuffer());
@@ -76,6 +80,7 @@ export class BackendCoreClient implements CameraDriver {
       };
     });
   }
+
 
   async discovery(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown): Promise<BackendCoreJson> {
     return this.json<BackendCoreJson>(method, path, body);
@@ -148,11 +153,25 @@ export class BackendCoreClient implements CameraDriver {
     if (!response.ok) {
       // 501 은 "이 기기는 그것을 하지 않는다"는 확정 답이다 — 상위가 재시도하지 않도록 코드를 보존한다.
       const detail = await response.text().catch(() => '');
+      const isHtml = response.headers.get('content-type')?.toLowerCase().includes('text/html')
+        || /^\s*<!doctype html|^\s*<html/i.test(detail);
+      const message = isHtml
+        ? `backend-core endpoint ${this.safeEndpoint(path)}가 HTML HTTP ${response.status}을 반환했습니다. 이 카메라의 제어 URL은 BackendCore API 기준 URL이어야 하며 Hucoms CGI 또는 RTSP URL이 아닙니다.`
+        : `backend-core HTTP ${response.status}${detail ? `: ${detail.slice(0, 200)}` : ''}`;
       throw new CameraDriverError(
-        `backend-core HTTP ${response.status}${detail ? `: ${detail.slice(0, 200)}` : ''}`,
+        message,
         [409, 422, 501].includes(response.status) ? response.status : 502,
       );
     }
     return response;
+  }
+
+  private safeEndpoint(path: string): string {
+    try {
+      const base = new URL(this.baseUrl);
+      return `${base.origin}${base.pathname.replace(/\/+$/, '')}${path}`;
+    } catch {
+      return path;
+    }
   }
 }

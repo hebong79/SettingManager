@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "description": "Setting 관련 Agent 들을 관리하는 Agent",
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "nodemon --watch src --ext ts --exec \"tsx src/index.ts\"",

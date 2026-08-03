@@ -1,5 +1,5 @@
 import { clampPtz, type PtzRaw } from '../domain/ptz.js';
-import { CameraDriverError, type CameraDriver, type Slot } from './cameraDriver.js';
+import { CameraDriverError, type CameraDriver, type CenterPoint, type Slot } from './cameraDriver.js';
 import { parseHucomsText, requireInt, type HucomsResponse } from './hucomsText.js';
 
 /**
@@ -55,6 +55,14 @@ export class HucomsClient implements CameraDriver {
     });
   }
 
+  /** Hucoms 펌웨어가 1920×1080 클릭 좌표를 현재 PTZ/줌 기준으로 중앙 조준한다. */
+  async centerPoint(point: CenterPoint): Promise<void> {
+    if (!Number.isInteger(point.x) || point.x < 0 || point.x > 1920 || !Number.isInteger(point.y) || point.y < 0 || point.y > 1080) {
+      throw new CameraDriverError('센터링 좌표는 1920×1080 프레임의 정수여야 합니다', 400);
+    }
+    await this.control('ptz_centering', 'setcenter', { type: 'point', 'center.pointx': point.x, 'center.pointy': point.y });
+  }
+
   async getSnapshot(): Promise<Buffer> {
     const body = await this.fetchBuffer(`${IMAGE}/jpeg.cgi`, {});
     // 인증 실패·경로 오류는 200 + text/plain 으로 오므로 JPEG SOI 로 판정한다.
@@ -63,6 +71,7 @@ export class HucomsClient implements CameraDriver {
     }
     return body;
   }
+
 
   /** Hucoms 기기는 주차면 개념이 없다. */
   async listSlots(): Promise<Slot[]> {

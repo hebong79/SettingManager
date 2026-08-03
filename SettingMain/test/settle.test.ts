@@ -28,6 +28,9 @@ function scriptedDriver(positions: PtzRaw[]): CameraDriver & { calls: number } {
     async getSnapshot() {
       return Buffer.alloc(0);
     },
+    async getDevicePresetCapability() {
+      return { supported: false, advertisedMaxPresetNumber: 0, usableMaxPresetNumber: 0, listing: 'unsupported' as const, naming: 'unsupported' as const, slots: [] };
+    },
     async listSlots() {
       return [];
     },

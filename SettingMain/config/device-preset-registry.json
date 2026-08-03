@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "cameras": {
+    "real-camera-2": [
+      {
+        "number": 1,
+        "name": "EV1",
+        "seeded": true,
+        "ptz": {
+          "pan": 2430,
+          "tilt": 1690,
+          "zoom": 8536
+        },
+        "learnedAt": "2026-08-02T08:06:09.357Z"
+      },
+      {
+        "number": 2,
+        "name": "EV2",
+        "seeded": true,
+        "ptz": {
+          "pan": 1402,
+          "tilt": 1123,
+          "zoom": 9433
+        },
+        "learnedAt": "2026-08-02T08:06:19.251Z"
+      }
+    ]
+  }
+}

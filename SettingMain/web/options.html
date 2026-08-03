@@ -17,18 +17,18 @@
 
   <main class="narrow">
     <section class="card">
-      <h2>시뮬레이터<span class="tag">baro_calory backend-core</span></h2>
+      <h2>BackendCore<span class="tag">주차면 탐색 전용</span></h2>
       <div class="body">
         <div class="row">
           <div class="field" style="flex-basis:100%">
-            <label for="simulatorUrl">시뮬레이터 URL</label>
+            <label for="simulatorUrl">BackendCore URL</label>
             <input id="simulatorUrl" type="text" placeholder="http://127.0.0.1:8080">
           </div>
         </div>
         <div class="row">
-          <button id="simulatorSave" class="primary">시뮬레이터 URL 저장</button>
+          <button id="simulatorSave" class="primary">BackendCore URL 저장</button>
         </div>
-        <p class="hint">타입이 <b>시뮬레이터</b>인 기기가 이 주소를 씁니다(제어 URL 을 따로 적으면 그쪽이 우선). 주차면 목록도 여기서 조회합니다.</p>
+        <p class="hint">주차면 탐색 화면에서 <b>BackendCore 사용</b> 체크박스를 켰을 때만 이 주소의 API를 사용합니다. 카메라의 CGI 제어 URL·RTSP 영상 URL은 여기에 입력하지 마세요.</p>
       </div>
     </section>
 
@@ -52,13 +52,7 @@
             <label for="newCameraId">새 기기 ID</label>
             <input id="newCameraId" type="text" placeholder="예: real-camera-3" maxlength="64">
           </div>
-          <div class="field">
-            <label for="newCameraKind">타입</label>
-            <select id="newCameraKind">
-              <option value="hucoms">Hucoms PTZ (실카메라 · UE 시뮬)</option>
-              <option value="backend-core">baro_calory backend-core 경유</option>
-            </select>
-          </div>
+
           <button id="addCamera">+ 기기 추가</button>
         </div>
         <p class="hint">ID 만 정하면 등록됩니다. 나머지 접속 정보는 아래 편집 폼에서 채우세요. ID 는 나중에 바꿀 수 없습니다.</p>
@@ -79,16 +73,6 @@
           </div>
         </div>
 
-        <div class="row">
-          <div class="field" style="flex-basis:100%">
-            <label for="fieldKind">타입</label>
-            <select id="fieldKind" data-field="kind">
-              <option value="hucoms">Hucoms PTZ (실카메라 · UE 시뮬)</option>
-              <option value="backend-core">baro_calory backend-core 경유</option>
-            </select>
-          </div>
-        </div>
-        <p class="hint" id="kindHint" style="margin:-4px 0 10px"></p>
 
         <div class="row">
           <div class="field" style="flex-basis:100%">

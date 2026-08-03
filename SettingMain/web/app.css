@@ -150,6 +150,13 @@ button.danger:hover:not(:disabled) { border-color: var(--err); color: var(--err)
 .viewport img { width: 100%; height: 100%; object-fit: contain; display: none; }
 .viewport img.live { display: block; }
 .viewport .placeholder { color: var(--muted); font-size: 13px; padding: 20px; text-align: center; }
+.stream-center-cross, .stream-click-marker { position: absolute; pointer-events: none; z-index: 1; }
+.stream-center-cross { left: 50%; top: 50%; width: 30px; height: 30px; transform: translate(-50%, -50%); }
+.stream-center-cross::before, .stream-center-cross::after { content: ''; position: absolute; background: #a3e635; box-shadow: 0 0 3px #05090f; }
+.stream-center-cross::before { left: 14px; top: 0; width: 2px; height: 30px; }
+.stream-center-cross::after { left: 0; top: 14px; width: 30px; height: 2px; }
+.stream-click-marker { width: 14px; height: 14px; transform: translate(-50%, -50%); border: 2px solid var(--warn); border-radius: 50%; box-shadow: 0 0 3px #05090f; }
+.viewport.centering { cursor: progress; }
 
 /* --- PTZ 표시 --- */
 .ptz-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
@@ -184,6 +191,17 @@ th { color: var(--muted); font-weight: 500; font-size: 12px; }
 tbody tr:hover { background: var(--panel-2); }
 td.num { font-variant-numeric: tabular-nums; }
 .empty { color: var(--muted); font-size: 13px; padding: 10px 2px; }
+
+/* 장비가 실제 목록을 제공하지 않으므로 슬롯 후보를 로컬 프리셋과 다르게 읽기 전용으로 보인다. */
+.device-preset-section { border-top: 1px solid var(--line); margin: 4px 0 10px; padding-top: 10px; }
+.device-preset-heading { display: flex; align-items: center; gap: 10px; }
+.device-preset-heading h3 { margin: 0; font-size: 13px; font-weight: 600; }
+.device-preset-heading .tag { margin-left: auto; font-size: 11px; font-weight: 500; color: var(--ok); border: 1px solid currentColor; border-radius: 999px; padding: 1px 8px; }
+.device-preset-section > .hint { margin-top: 6px; }
+.device-preset-area { min-height: 44px; }
+.device-preset-actions { margin-top: 10px; }
+.device-preset-area select { width: 100%; margin-top: 5px; }
+.device-preset-area .hint { font-variant-numeric: tabular-nums; }
 
 .badge { font-size: 11px; border-radius: 999px; padding: 1px 8px; border: 1px solid currentColor; }
 .badge.free { color: var(--ok); }

@@ -29,6 +29,17 @@
                 <select id="cameraSelect"></select>
               </div>
             </div>
+            <section class="device-preset-section" aria-labelledby="devicePresetTitle">
+              <div class="device-preset-heading">
+                <h3 id="devicePresetTitle">장비 프리셋</h3>
+                <span class="tag" id="devicePresetTag">미조회</span>
+              </div>
+              <p class="hint">장비 번호별 학습 좌표를 별도 저장합니다. 로컬 프리셋과는 독립된 제어입니다.</p>
+              <div id="devicePresetArea" class="device-preset-area" role="status" aria-live="polite" aria-atomic="true" aria-busy="false">
+                <p class="empty">선택한 카메라의 장비 프리셋 정보를 조회합니다.</p>
+              </div>
+              <div class="row device-preset-actions"><button id="devicePresetGo" class="primary" type="button" disabled>프리셋 이동</button><button id="devicePresetSync" type="button" disabled>프리셋 → 좌표 동기화</button><button id="devicePresetRefresh" type="button" aria-controls="devicePresetArea" aria-label="장비 프리셋 다시 시도">새로고침</button></div>
+            </section>
             <div class="row">
               <div class="field">
                 <label for="presetSelect">프리셋</label>
@@ -108,8 +119,10 @@
       <div>
         <section class="card">
           <h2>영상<span class="tag" id="streamTag">정지</span></h2>
-          <div class="viewport">
+          <div class="viewport" id="streamViewport" aria-label="영상 클릭 센터링 영역">
             <img id="stream" alt="카메라 영상">
+            <span class="stream-center-cross" aria-hidden="true"></span>
+            <span id="streamClickMarker" class="stream-click-marker" aria-hidden="true" hidden></span>
             <div class="placeholder" id="streamPlaceholder">「시작」을 누르면 영상을 받아옵니다.<br>페이지를 여는 것만으로 카메라를 점유하지 않습니다.</div>
           </div>
           <div class="body">

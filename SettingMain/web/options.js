@@ -19,7 +19,7 @@ const state = {
 /** 편집 폼의 입력칸 ↔ 카메라 필드 대응. */
 const FIELDS = [
   ['fieldLabel', 'label'],
-  ['fieldKind', 'kind'],
+
   ['fieldControlUrl', 'controlUrl'],
   ['fieldUsername', 'username'],
   ['fieldStreamUrl', 'streamUrl'],
@@ -51,7 +51,7 @@ function renderEditor() {
   $('editTitle').textContent = `기기 편집: ${camera.id}`;
   $('fieldId').value = camera.id;
   $('fieldLabel').value = camera.label;
-  $('fieldKind').value = camera.kind;
+
   $('fieldControlUrl').value = camera.controlUrl;
   $('fieldUsername').value = camera.username;
   $('fieldStreamUrl').value = camera.streamUrl;
@@ -61,23 +61,11 @@ function renderEditor() {
   $('fieldPassword').value = '';
   $('fieldPassword').placeholder = camera.hasPassword ? '(저장됨 · 변경 시에만 입력)' : '(미설정)';
 
-  applyKindHints(camera.kind);
+
   applyStreamHint();
   setDirty(false);
 }
 
-/** 타입에 따라 의미가 달라지는 칸에 안내를 붙인다. */
-function applyKindHints(kind) {
-  const viaBackend = kind === 'backend-core';
-  $('fieldControlUrl').placeholder = viaBackend ? '비워 두면 위의 시뮬레이터 URL 사용' : 'http://192.168.0.153:80';
-  $('kindHint').innerHTML = viaBackend
-    ? 'baro_calory backend-core 의 <code>/api/ptz</code> 를 경유합니다. <b>UE 시뮬레이터에 직접 붙을 때는 이 타입이 아닙니다</b> — 시뮬은 Hucoms CGI 를 그대로 모사하므로 위쪽 <b>Hucoms PTZ</b> 를 고르세요.'
-    : '실카메라와 <b>UE 시뮬레이터</b>가 모두 이 타입입니다. 시뮬은 Hucoms CGI 를 모사합니다(제어 포트 8081~8084).';
-  for (const id of ['fieldUsername', 'fieldPassword']) {
-    $(id).disabled = viaBackend;
-    $(id).title = viaBackend ? 'backend-core 경유는 계정을 쓰지 않습니다' : '';
-  }
-}
 
 /** 영상 URL 의 스킴이 어떤 경로로 가는지 즉시 알려준다 — 서버의 streamTransportFor 와 같은 규칙. */
 function applyStreamHint() {
@@ -186,7 +174,7 @@ async function addCamera() {
   const id = $('newCameraId').value.trim();
   if (!id) return toast('새 기기 ID 를 입력하세요');
   try {
-    const result = await api.addCamera({ id, kind: $('newCameraKind').value });
+    const result = await api.addCamera({ id });
     state.cameras = result.cameras;
     state.activeId = result.activeCameraId;
     state.selectedId = result.camera.id;
@@ -295,7 +283,7 @@ function wire() {
     $(elementId).addEventListener('input', () => setDirty(true));
   }
   $('fieldPassword').addEventListener('input', () => setDirty(true));
-  $('fieldKind').addEventListener('change', () => applyKindHints($('fieldKind').value));
+
   $('fieldStreamUrl').addEventListener('input', applyStreamHint);
   $('fieldControlUrl').addEventListener('input', applyStreamHint);
 }

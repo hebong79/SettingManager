@@ -1,6 +1,7 @@
 import { createServer } from './api/server.js';
 import { ConfigStore } from './config/configStore.js';
 import { PresetStore } from './store/presetStore.js';
+import { DevicePresetRegistryStore } from './store/devicePresetRegistryStore.js';
 import { SlotStore } from './store/slotStore.js';
 
 /** SettingManager 진입점 — 설정을 읽고 웹 콘솔 + 제어 API 를 띄운다. */
@@ -11,10 +12,13 @@ async function main(): Promise<void> {
   const presetStore = new PresetStore();
   await presetStore.load();
 
+  const devicePresetRegistryStore = new DevicePresetRegistryStore();
+  await devicePresetRegistryStore.load();
+
   const slotStore = new SlotStore();
   await slotStore.load();
 
-  const server = createServer({ configStore, presetStore, slotStore });
+  const server = createServer({ configStore, presetStore, slotStore, devicePresetRegistryStore });
   server.listen(config.server.port, config.server.host, () => {
     const { host, port } = config.server;
     console.log(`SettingManager  http://${host}:${port}/`);

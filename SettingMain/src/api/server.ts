@@ -1,39 +1,48 @@
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { CameraDriverError } from '../clients/cameraDriver.js';
 import { createDriver, findCamera } from '../clients/driverFactory.js';
+import { HyucomsDirectPresetClient } from '../clients/hyucomsDirectPresetClient.js';
 import { BackendCoreClient } from '../clients/backendCoreClient.js';
 import { waitForSettle, type SettleOptions } from '../clients/waitForSettle.js';
 import type { ConfigStore } from '../config/configStore.js';
 import { ConfigError, mergeSettings, toPublicCamera } from '../config/normalize.js';
-import type { SettingsPatch } from '../config/types.js';
+import type { CameraConfig, SettingsPatch } from '../config/types.js';
 import { PresetError } from '../domain/preset.js';
 import { clampPtz, limitedAxes, nudge, toView, type Axis, type PtzRaw } from '../domain/ptz.js';
+import type { DevicePresetRegistryStore } from '../store/devicePresetRegistryStore.js';
 import { createFrameSource } from '../stream/frameSource.js';
 import type { PresetStore } from '../store/presetStore.js';
 import type { SlotStore } from '../store/slotStore.js';
 import { HttpError, optionalNumber, readJsonBody, requireNumber, requireString, sendError, sendJson } from './httpUtil.js';
 import { serveStatic } from './staticFiles.js';
+import { IndependentCameraCore } from '../independentCameraCore/independentCameraCore.js';
+import { CameraLeaseError } from '../independentCameraCore/cameraLease.js';
 
 export interface ServerDeps {
   configStore: ConfigStore;
   presetStore: PresetStore;
   slotStore: SlotStore;
+  devicePresetRegistryStore: DevicePresetRegistryStore;
   /** 테스트에서 외부 HTTP 를 가로채기 위한 주입 지점. */
   fetchImpl?: typeof fetch;
   /** 정착 대기 파라미터. 테스트가 실제 시간을 흘려보내지 않도록 주입한다. */
   settleOptions?: SettleOptions;
+  /** 장비 capability 직접 조회의 테스트 주입 지점. production에서는 native HTTP adapter를 쓴다. */
+  directPresetClientFactory?: (camera: CameraConfig) => Pick<HyucomsDirectPresetClient, 'getCapability'> & Partial<Pick<HyucomsDirectPresetClient, 'goPreset' | 'getPtz' | 'goPtz'>>;
 }
 
 const AXES: readonly Axis[] = ['pan', 'tilt', 'zoom'];
 const MJPEG_BOUNDARY = 'settingmanager-frame';
+const devicePresetBusy = new Set<string>();
 
 export function createServer(deps: ServerDeps): Server {
+  const independentCore = new IndependentCameraCore(deps.settleOptions);
   return createHttpServer((req, res) => {
-    handle(req, res, deps).catch((error) => fail(res, error));
+    handle(req, res, deps, independentCore).catch((error) => fail(res, error));
   });
 }
 
-async function handle(req: IncomingMessage, res: ServerResponse, deps: ServerDeps): Promise<void> {
+async function handle(req: IncomingMessage, res: ServerResponse, deps: ServerDeps, independentCore: IndependentCameraCore): Promise<void> {
   const url = new URL(req.url ?? '/', 'http://localhost');
   const { pathname, searchParams } = url;
   const method = req.method ?? 'GET';
@@ -56,6 +65,32 @@ async function handle(req: IncomingMessage, res: ServerResponse, deps: ServerDep
   if (method === 'GET' && pathname === '/api/health') {
     sendJson(res, 200, { ok: true, service: 'settingmanager', activeCameraId: deps.configStore.get().activeCameraId });
     return;
+  }
+
+  // --- SettingMain 독립 CameraCore --------------------------------------------
+  // 외부 BackendCore의 active device를 보거나 변경하지 않는다.
+  const independentRoute = /^\/api\/independent-core\/cameras\/([^/]+)\/(capabilities|center)$/.exec(pathname);
+  if (independentRoute) {
+    const cameraId = decodeURIComponent(independentRoute[1]!);
+    const action = independentRoute[2]!;
+    const { camera, driver } = driverFor(cameraId);
+    if (method === 'GET' && action === 'capabilities') {
+      sendJson(res, 200, independentCore.capability(camera.id, driver));
+      return;
+    }
+    if (method === 'POST' && action === 'center') {
+      const body = await readJsonBody(req);
+      const point = { x: requireCenterCoordinate(body, 'x', 1920), y: requireCenterCoordinate(body, 'y', 1080) };
+      try {
+        const result = await independentCore.center(camera.id, driver, point);
+        sendJson(res, 200, { cameraId: camera.id, ...result });
+      } catch (error) {
+        if (error instanceof CameraLeaseError) throw new HttpError(409, error.message);
+        throw error;
+      }
+      return;
+    }
+    throw new HttpError(404, `찾을 수 없습니다: ${method} ${pathname}`);
   }
 
   // --- BackendCore 탐색·보정 ---------------------------------------------------
@@ -101,6 +136,72 @@ async function handle(req: IncomingMessage, res: ServerResponse, deps: ServerDep
     const next = await deps.configStore.patch({ activeCameraId: requireString(body, 'id') });
     sendJson(res, 200, { activeCameraId: next.activeCameraId });
     return;
+  }
+
+  // --- 장비 프리셋 capability --------------------------------------------------
+  // 로컬 /api/presets 및 BackendCore discovery presets와 서로 다른 read-only namespace다.
+  if (method === 'GET' && pathname === '/api/device-preset-capability') {
+    const config = deps.configStore.get();
+    const camera = findCamera(config, searchParams.get('cameraId') ?? undefined);
+    if (camera.kind !== 'hucoms') throw new HttpError(501, '현재 카메라는 장비 프리셋 capability를 지원하지 않습니다');
+    const directClient = deps.directPresetClientFactory?.(camera) ?? new HyucomsDirectPresetClient({
+      baseUrl: camera.controlUrl,
+      username: camera.username,
+      password: camera.password,
+      timeoutMs: camera.timeoutMs,
+    });
+    const capability = await directClient.getCapability();
+    sendJson(res, 200, { cameraId: camera.id, ...capability });
+    return;
+  }
+  const devicePresetRoute = /^\/api\/cameras\/([^/]+)\/device-presets(?:\/(\d+)\/(go|sync-coordinate))?$/.exec(pathname);
+  if (devicePresetRoute) {
+    const cameraId = decodeURIComponent(devicePresetRoute[1]!);
+    const camera = findCamera(deps.configStore.get(), cameraId);
+    if (camera.kind !== 'hucoms') throw new HttpError(501, 'Hucoms 카메라에서만 장비 프리셋을 실행할 수 있습니다');
+    if (method === 'GET' && !devicePresetRoute[2]) {
+      const directClient = createDirectPresetClient(camera, deps);
+      const capability = await directClient.getCapability();
+      if (!capability.supported) throw new HttpError(501, '이 카메라는 장비 프리셋을 지원하지 않습니다');
+      sendJson(res, 200, { cameraId: camera.id, entries: deps.devicePresetRegistryStore.list(camera.id, capability.usableMaxPresetNumber), capability });
+      return;
+    }
+    if (method === 'POST' && devicePresetRoute[2] && devicePresetRoute[3]) {
+      const number = Number(devicePresetRoute[2]);
+      if (!Number.isInteger(number) || number < 1 || number > 255) throw new HttpError(400, '장비 프리셋 번호가 capability 범위를 벗어났습니다');
+      const body = await readJsonBody(req, 16 * 1024);
+      const action = devicePresetRoute[3];
+      const mode = action === 'go' ? readDevicePresetMode(body) : readEmptyDevicePresetBody(body);
+      const entry = deps.devicePresetRegistryStore.get(camera.id, number);
+      if (mode === 'coordinate' && !entry?.ptz) throw new HttpError(409, 'COORDINATE_NOT_SYNCED');
+      const directClient = createDirectPresetClient(camera, deps);
+      const capability = await directClient.getCapability();
+      if (!capability.supported) throw new HttpError(501, '이 카메라는 장비 프리셋을 지원하지 않습니다');
+      if (number > capability.usableMaxPresetNumber) throw new HttpError(400, '장비 프리셋 번호가 capability 범위를 벗어났습니다');
+      if (devicePresetBusy.has(camera.id)) throw new HttpError(409, 'CAMERA_BUSY');
+      devicePresetBusy.add(camera.id);
+      try {
+        const mover = requireDirectPresetMover(directClient);
+        if (mode === 'preset' || mode === 'synced') {
+          await mover.goPreset(number);
+          const settled = await waitForSettle({ cameraId: camera.id, kind: 'hucoms', getPtz: mover.getPtz, goPtz: async () => {}, getSnapshot: async () => Buffer.alloc(0), listSlots: async () => [] }, deps.settleOptions);
+          if (mode === 'synced') {
+            if (!settled.settled) throw new HttpError(504, '좌표가 제한 시간 안에 안정화되지 않았습니다. 이동 여부를 카메라에서 확인하세요. 자동 재시도하지 않았습니다');
+            const learned = await deps.devicePresetRegistryStore.learn(camera.id, number, settled.ptz);
+            sendJson(res, 200, { mode: 'synced', entry: toDevicePresetEntryView(learned), ptz: settled.ptz, settled: true });
+            return;
+          }
+          sendJson(res, 200, { mode: 'preset', entry: entry ? toDevicePresetEntryView(entry) : null, ptz: settled.ptz, settled: settled.settled });
+          return;
+        }
+        await mover.goPtz(entry!.ptz!);
+        const settled = await waitForSettle({ cameraId: camera.id, kind: 'hucoms', getPtz: mover.getPtz, goPtz: async () => {}, getSnapshot: async () => Buffer.alloc(0), listSlots: async () => [] }, deps.settleOptions);
+        sendJson(res, 200, { mode: 'coordinate', entry: toDevicePresetEntryView(entry!), ptz: settled.ptz, settled: settled.settled });
+        return;
+      } finally {
+        devicePresetBusy.delete(camera.id);
+      }
+    }
   }
   if (method === 'POST' && pathname === '/api/cameras') {
     const body = await readJsonBody(req);
@@ -192,6 +293,16 @@ async function handle(req: IncomingMessage, res: ServerResponse, deps: ServerDep
     sendJson(res, 200, { cameraId: camera.id, ptz: toView(settle.ptz), limited, settled: settle.settled });
     return;
   }
+  if (method === 'POST' && pathname === '/api/ptz/center') {
+    const body = await readJsonBody(req);
+    const point = { x: requireCenterCoordinate(body, 'x', 1920), y: requireCenterCoordinate(body, 'y', 1080) };
+    const { camera, driver } = driverFor(asId(body.cameraId));
+    if (!driver.centerPoint) throw new HttpError(501, '현재 카메라는 영상 클릭 센터링을 지원하지 않습니다');
+    await driver.centerPoint(point);
+    const settle = await waitForSettle(driver, deps.settleOptions);
+    sendJson(res, 200, { cameraId: camera.id, point, ptz: toView(settle.ptz), settled: settle.settled });
+    return;
+  }
 
   // --- 프리셋 -----------------------------------------------------------------
   if (pathname === '/api/presets') {
@@ -267,19 +378,49 @@ async function handle(req: IncomingMessage, res: ServerResponse, deps: ServerDep
   sendError(res, 404, `찾을 수 없습니다: ${method} ${pathname}`);
 }
 
+function createDirectPresetClient(camera: CameraConfig, deps: ServerDeps): Pick<HyucomsDirectPresetClient, 'getCapability'> & Partial<Pick<HyucomsDirectPresetClient, 'goPreset' | 'getPtz' | 'goPtz'>> {
+  return deps.directPresetClientFactory?.(camera) ?? new HyucomsDirectPresetClient({
+    baseUrl: camera.controlUrl,
+    username: camera.username,
+    password: camera.password,
+    timeoutMs: camera.timeoutMs,
+  });
+}
+
+function readDevicePresetMode(body: Record<string, unknown>): 'preset' | 'coordinate' {
+  const keys = Object.keys(body);
+  if (keys.length !== 1 || keys[0] !== 'mode' || (body.mode !== 'preset' && body.mode !== 'coordinate')) {
+    throw new HttpError(400, '본문은 mode: preset 또는 coordinate 만 허용합니다');
+  }
+  return body.mode;
+}
+
+function readEmptyDevicePresetBody(body: Record<string, unknown>): 'synced' {
+  if (Object.keys(body).length !== 0) throw new HttpError(400, '동기화 본문은 빈 JSON 객체만 허용합니다');
+  return 'synced';
+}
+
+function requireDirectPresetMover(client: Pick<HyucomsDirectPresetClient, 'getCapability'> & Partial<Pick<HyucomsDirectPresetClient, 'goPreset' | 'getPtz' | 'goPtz'>>): Pick<HyucomsDirectPresetClient, 'goPreset' | 'getPtz' | 'goPtz'> {
+  if (!client.goPreset || !client.getPtz || !client.goPtz) throw new HttpError(500, '장비 프리셋 직접 어댑터가 이동 계약을 제공하지 않습니다');
+  return { goPreset: client.goPreset.bind(client), getPtz: client.getPtz.bind(client), goPtz: client.goPtz.bind(client) };
+}
+
+function toDevicePresetEntryView(entry: { number: number; name: string | null; seeded: boolean; ptz: PtzRaw | null; learnedAt: string | null }): object {
+  return { ...entry, flags: [entry.seeded ? 'seeded' : 'generic', entry.ptz ? 'learned' : 'unlearned'] };
+}
+
 async function handleDiscovery(req: IncomingMessage, res: ServerResponse, deps: ServerDeps, pathname: string, method: string): Promise<void> {
   const config = deps.configStore.get();
   const camera = findCamera(config);
-  if (camera.kind !== 'backend-core') {
-    throw new HttpError(409, 'BackendCore 카메라에서만 주차면 탐색·캘리브레이션·센터링을 실행할 수 있습니다');
-  }
+  const useBackendCore = new URL(req.url ?? '/', 'http://localhost').searchParams.get('useBackendCore') === '1';
+  if (!useBackendCore) throw new HttpError(409, '주차면 탐색 화면의 BackendCore 사용 체크박스를 켜세요');
+  if (!config.simulator.baseUrl) throw new HttpError(409, '옵션의 BackendCore URL을 먼저 설정하세요');
   // BackendCore discovery point는 x/y/name만 영속화한다. 별도 box 정본을 만들지 않는
   // 한 point 기반 "센터+줌"은 성공 경로가 없으므로, 직접 box를 받아 우회시키지 않는다.
   if (pathname === '/api/center-box') {
     throw new HttpError(501, 'BackendCore discovery point는 box 좌표를 저장하지 않아 개별 센터+줌을 지원하지 않습니다');
   }
-  const client = createDriver(camera, config, deps.fetchImpl);
-  if (!(client instanceof BackendCoreClient)) throw new HttpError(501, '현재 카메라는 BackendCore 고급 제어를 지원하지 않습니다');
+  const client = new BackendCoreClient({ cameraId: camera.id, baseUrl: config.simulator.baseUrl, timeoutMs: camera.timeoutMs, fetchImpl: deps.fetchImpl });
   const body = ['POST', 'PUT'].includes(method) ? await readJsonBody(req) : undefined;
   const preset = /^\/api\/discovery\/presets\/([^/]+)(?:\/points(?:\/([^/]+))?)?(\/goto)?$/.exec(pathname);
   let result: Record<string, unknown>;
@@ -314,7 +455,9 @@ function calibrationBody(body: Record<string, unknown>): Record<string, unknown>
 }
 function centerBody(body: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = { x: requireNumber(body, 'x'), y: requireNumber(body, 'y') };
-  for (const key of ['frameWidth', 'frameHeight', 'speed']) { const value = optionalNumber(body, key); if (value !== undefined) result[key] = value; }
+  result.frameWidth = optionalNumber(body, 'frameWidth') ?? 1920;
+  result.frameHeight = optionalNumber(body, 'frameHeight') ?? 1080;
+  result.speed = optionalNumber(body, 'speed') ?? 50;
   return result;
 }
 function plateHomeBody(body: Record<string, unknown>): Record<string, unknown> {
@@ -381,6 +524,12 @@ function readPtz(body: Record<string, unknown>): PtzRaw | undefined {
 
 function asId(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function requireCenterCoordinate(body: Record<string, unknown>, key: 'x' | 'y', maximum: number): number {
+  const value = requireNumber(body, key);
+  if (!Number.isInteger(value) || value < 0 || value > maximum) throw new HttpError(400, `${key} 는 0..${maximum} 정수여야 합니다`);
+  return value;
 }
 
 function fail(res: ServerResponse, error: unknown): void {
