@@ -88,7 +88,7 @@ describe('BackendCoreClient 오류', () => {
       new Response('<html><body><h1>400 Bad Request</h1></body></html>', { status: 400, headers: { 'content-type': 'text/html' } }),
     );
 
-    await expect(client(fetchImpl as unknown as typeof fetch).center({ x: 1400, y: 800 })).rejects.toThrow(
+    await expect(client(fetchImpl as unknown as typeof fetch).centerPoint({ x: 1400, y: 800 })).rejects.toThrow(
       /http:\/\/127\.0\.0\.1:8080\/api\/center.*BackendCore API.*Hucoms CGI.*RTSP/i,
     );
   });
@@ -108,23 +108,14 @@ describe('BackendCoreClient 오류', () => {
   });
 });
 
-describe('BackendCoreClient 탐색 계약', () => {
-  it('discovery point·센터의 실제 경로와 body를 전달한다', async () => {
-    const fetchImpl = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => jsonResponse({ ok: true }));
-    const subject = client(fetchImpl as unknown as typeof fetch);
-    await subject.discoveryPoints('POST', 'p 1', undefined, { x: 10, y: 20 });
-    await subject.center({ startX: 1, startY: 2, endX: 3, endY: 4 }, true);
-    expect(fetchImpl.mock.calls.map((call) => call[0])).toEqual([
-      'http://127.0.0.1:8080/api/discovery/presets/p%201/points',
-      'http://127.0.0.1:8080/api/center-box',
-    ]);
-    expect(JSON.parse(String((fetchImpl.mock.calls[0]![1] as RequestInit).body))).toEqual({ x: 10, y: 20 });
-  });
-
-  it('busy(409)와 capability(422)를 상위 API까지 보존한다', async () => {
+describe('BackendCoreClient 전송 오류 보존', () => {
+  it('busy(409)와 capability(422)를 상위까지 보존한다', async () => {
     for (const code of [409, 422]) {
       const fetchImpl = vi.fn(async () => jsonResponse({ error: 'blocked' }, code));
-      await expect(client(fetchImpl as unknown as typeof fetch).listDiscoveryPresets()).rejects.toMatchObject({ statusCode: code });
+      await expect(client(fetchImpl as unknown as typeof fetch).listSlots()).rejects.toMatchObject({ statusCode: code });
     }
   });
 });
+
+// 탐색·보정·호밍 계약은 driver 가 아니라 CoreProvider 의 소관이다 —
+// 경로·body 검증은 test/remoteCoreProvider.test.ts 로 옮겼다(M4).
