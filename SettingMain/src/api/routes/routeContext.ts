@@ -79,7 +79,7 @@ export function readPtz(body: Record<string, unknown>): PtzRaw | undefined {
 }
 
 /** 센터링 좌표는 Hucoms 논리 프레임(1920×1080) 안의 정수여야 한다. */
-export function requireCenterCoordinate(body: Record<string, unknown>, key: 'x' | 'y', maximum: number): number {
+export function requireCenterCoordinate(body: Record<string, unknown>, key: string, maximum: number): number {
   const value = requireNumber(body, key);
   if (!Number.isInteger(value) || value < 0 || value > maximum) throw new HttpError(400, `${key} 는 0..${maximum} 정수여야 합니다`);
   return value;

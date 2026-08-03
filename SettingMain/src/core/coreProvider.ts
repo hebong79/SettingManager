@@ -1,4 +1,4 @@
-import type { CameraDriver, CenterPoint, Slot } from '../devices/cameraDriver.js';
+import type { CameraDriver, CenterPoint } from '../devices/cameraDriver.js';
 import type { CameraConfig } from '../config/types.js';
 import type { PtzView } from '../domain/ptz.js';
 
@@ -18,7 +18,6 @@ export type CoreProviderName = 'remote' | 'local';
 export const CORE_CAPABILITY_NAMES = [
   'center',
   'centerBox',
-  'slots',
   'discoveryPresets',
   'discoveryPoints',
   'calibration',
@@ -141,7 +140,6 @@ export interface CoreProvider {
 
   center(ctx: CoreContext, point: CenterPoint): Promise<CenterResult>;
   centerBox(ctx: CoreContext, box: CenterBox): Promise<CenterResult>;
-  listSlots(ctx: CoreContext): Promise<Slot[]>;
 
   readonly discoveryPresets: DiscoveryPresetPort;
   readonly discoveryPoints: DiscoveryPointPort;

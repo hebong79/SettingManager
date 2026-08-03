@@ -29,7 +29,6 @@ import {
 const INVOKE: Record<CoreCapabilityName, (provider: CoreProvider, ctx: CoreContext) => Promise<unknown>> = {
   center: (p, ctx) => p.center(ctx, { x: 960, y: 540 }),
   centerBox: (p, ctx) => p.centerBox(ctx, { startX: 100, startY: 100, endX: 300, endY: 300 }),
-  slots: (p, ctx) => p.listSlots(ctx),
   discoveryPresets: (p, ctx) => p.discoveryPresets.create(ctx, { name: 'conformance' }),
   discoveryPoints: (p, ctx) => p.discoveryPoints.create(ctx, 'preset-1', { x: 10, y: 20 }),
   calibration: (p, ctx) => p.calibration.start(ctx, { mode: 'verify' }),

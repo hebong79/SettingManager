@@ -284,8 +284,8 @@ describe('PTZ', () => {
     expect(status).toBe(400);
   });
 
-  it('POST /api/ptz/center는 클릭 논리 좌표를 Hucoms point-centering CGI로 보내고 정착 좌표를 돌려준다', async () => {
-    const { status, body } = await api('/api/ptz/center', {
+  it('POST /api/core/center는 클릭 논리 좌표를 Hucoms point-centering CGI로 보내고 정착 좌표를 돌려준다', async () => {
+    const { status, body } = await api('/api/core/center', {
       method: 'POST',
       body: JSON.stringify({ cameraId: 'cam-a', x: 1400, y: 800 }),
     });
@@ -302,10 +302,10 @@ describe('PTZ', () => {
     expect(url.searchParams.get('center.pointy')).toBe('800');
   });
 
-  it.each([{ x: -1, y: 0 }, { x: 1921, y: 0 }, { x: 0, y: 1081 }, { x: 1.5, y: 0 }, { x: 1 }])('POST /api/ptz/center의 잘못된 좌표 %j는 400이며 장비에 명령을 보내지 않는다', async (body) => {
+  it.each([{ x: -1, y: 0 }, { x: 1921, y: 0 }, { x: 0, y: 1081 }, { x: 1.5, y: 0 }, { x: 1 }])('POST /api/core/center의 잘못된 좌표 %j는 400이며 장비에 명령을 보내지 않는다', async (body) => {
     const calls = (fakeFetch as unknown as { mock: { calls: unknown[] } }).mock.calls;
     const before = calls.length;
-    const response = await api('/api/ptz/center', { method: 'POST', body: JSON.stringify({ cameraId: 'cam-a', ...body }) });
+    const response = await api('/api/core/center', { method: 'POST', body: JSON.stringify({ cameraId: 'cam-a', ...body }) });
     expect(response.status).toBe(400);
     expect(calls).toHaveLength(before);
   });
@@ -521,40 +521,62 @@ describe('Hucoms 장비 프리셋 레지스트리', () => {
   });
 });
 
-describe('BackendCore 탐색 프록시', () => {
-  it('주차면 탐색의 명시적 opt-in은 hucoms 활성 카메라도 전역 BackendCore URL로 프록시한다', async () => {
-    const { status, body } = await api('/api/discovery/presets?useBackendCore=1');
+describe('코어 구현 전환', () => {
+  /** 설정으로 코어를 바꾼다 — 질의 파라미터가 아니다. */
+  const useRemote = () => api('/api/settings', { method: 'PUT', body: JSON.stringify({ core: { provider: 'remote' } }) });
+
+  it('기본값은 자체 코어다', async () => {
+    const { body } = await api('/api/core/capabilities');
+    expect(body.provider).toBe('local');
+  });
+
+  it('자체 코어는 탐색을 501 로 거절한다 — 조용히 backend-core 로 넘기지 않는다', async () => {
+    const { status, body } = await api('/api/core/discovery/presets');
+    expect(status).toBe(501);
+    expect(body.error).toMatch(/자체 코어/);
+    expect(requestedUrls.some((url) => url.includes('/api/discovery/presets'))).toBe(false);
+  });
+
+  it('설정을 remote 로 바꾸면 같은 경로가 backend-core 로 간다 — 화면 코드는 그대로다', async () => {
+    await useRemote();
+    const { status, body } = await api('/api/core/discovery/presets');
     expect(status).toBe(200);
-    expect(body).toMatchObject({ cameraId: 'backend-device', presets: [{ id: 'd1' }] });
+    expect(body).toMatchObject({ presets: [{ id: 'd1' }] });
+    expect(requestedUrls.some((url) => url.includes('/api/discovery/presets'))).toBe(true);
   });
 
-  it('주차면 탐색 checkbox opt-in 없는 고급 작업은 명시적으로 막는다', async () => {
-    const { status, body } = await api('/api/discovery/presets');
-    expect(status).toBe(409);
-    expect(body.error).toMatch(/체크박스/);
+  it('capabilities 가 현재 구현과 능력을 답한다', async () => {
+    await useRemote();
+    const { body } = await api('/api/core/capabilities');
+    expect(body.provider).toBe('remote');
+    expect(Object.keys(body.supported).sort()).toEqual(['calibration', 'center', 'centerBox', 'discoveryPoints', 'discoveryPresets', 'plateHoming']);
   });
 
-  it.each([
-    ['/api/discovery/presets', undefined],
-    ['/api/discovery/calibration/start', { mode: 'full' }],
-    ['/api/center', { x: 10, y: 20 }],
-    ['/api/discovery/plate-home/start', { presetId: 'd1' }],
-  ])('checkbox opt-in 없는 고급 경로 %s 는 409로 막는다', async (path, body) => {
-    const response = await api(path, { method: body ? 'POST' : 'GET', body: body ? JSON.stringify(body) : undefined });
-    expect(response.status).toBe(409);
-    expect(response.body.error).toMatch(/BackendCore/);
+  it('center-box 는 어느 구현에서도 501 이다 — discovery point 에 box 정본이 없다', async () => {
+    for (const provider of ['local', 'remote']) {
+      await api('/api/settings', { method: 'PUT', body: JSON.stringify({ core: { provider } }) });
+      const response = await api('/api/core/center-box', { method: 'POST', body: JSON.stringify({ startX: 1, startY: 2, endX: 3, endY: 4 }) });
+      expect(response.status).toBe(501);
+    }
   });
 
-  it('discovery point에 box 정본이 없으므로 센터+줌은 서버에서 명시적으로 미지원 처리한다', async () => {
-    const response = await api('/api/center-box?useBackendCore=1', { method: 'POST', body: JSON.stringify({ startX: 1, startY: 2, endX: 3, endY: 4 }) });
-    expect(response.status).toBe(501);
-    expect(response.body.error).toMatch(/box 좌표/);
-  });
-
-  it('BackendCore capability 오류(422)는 프록시에서도 보존한다', async () => {
-    const response = await api('/api/center?useBackendCore=1', { method: 'POST', body: JSON.stringify({ x: 10, y: 20 }) });
+  it('backend-core 의 capability 오류(422)는 그대로 보존한다', async () => {
+    await useRemote();
+    const response = await api('/api/core/center', { method: 'POST', body: JSON.stringify({ x: 10, y: 20 }) });
     expect(response.status).toBe(422);
     expect(response.body.error).toMatch(/422/);
+  });
+
+  it('기기별 재정의가 전역 설정을 이긴다', async () => {
+    await api('/api/settings', { method: 'PUT', body: JSON.stringify({ core: { provider: 'local', perCamera: { 'cam-a': 'remote' } } }) });
+    expect((await api('/api/core/capabilities?cameraId=cam-a')).body.provider).toBe('remote');
+    expect((await api('/api/core/capabilities?cameraId=sim-1')).body.provider).toBe('local');
+  });
+
+  it('옛 경로는 사라졌다', async () => {
+    for (const path of ['/api/discovery/presets', '/api/center', '/api/center-box', '/api/ptz/center', '/api/independent-core/cameras/cam-a/center']) {
+      expect((await api(path, { method: 'POST', body: '{}' })).status).toBe(404);
+    }
   });
 });
 
@@ -763,37 +785,12 @@ describe('영상·정적 파일', () => {
     expect(css).toContain('.discovery-stream-actions .row { justify-content: flex-end; }');
   });
 
-  it('discovery 정적 계약은 화면 BackendCore 체크박스·활성 카메라 이중 게이트와 안전한 비활성 상태를 보존한다', async () => {
-    const source = await readFile(join(process.cwd(), 'web', 'discovery.js'), 'utf8');
-    const html = await readFile(join(process.cwd(), 'web', 'discovery.html'), 'utf8');
-
-    // 화면의 명시적인 BackendCore 선택과 활성 카메라 일치가 있어야 고급 API를 쓸 수 있다.
-    expect(source).toContain("const useBackendCore=$('useBackendCore').checked;");
-    expect(source).toContain('advanced=Boolean(useBackendCore && c && c.id===activeCameraId);');
-    expect(source).toContain('useBackendCore=1');
-    // 비활성 시 먼저 poller를 해제하고, discovery 조회·새 poller는 advanced 분기 안에서만 시작한다.
-    expect(source).toContain('clearInterval(poller); poller=0;');
-    expect(source).toContain('if (advanced) {');
-    expect(source).toContain('await loadPresets(); await poll(); poller=setInterval(poll,1500);');
-    // 고급 영역 내 모든 native form control을 토글하며 centerBox만은 항상 disabled다.
-    expect(source).toContain("querySelectorAll('input, select, button')");
-    expect(source).toContain("control.disabled = disabled || control.id === 'centerBox';");
-    expect(source).toContain("control.id === 'centerBox' ? 'BackendCore discovery point는 box 좌표를 저장하지 않습니다'");
-    // checkbox/활성 불일치 안내에서 기존 옵션 화면과 활성화 절차를 제공한다.
-    expect(source).toContain('<a href="/options">/options</a>');
-    expect(source).toContain('선택한 카메라를 먼저 <strong>활성으로 선택</strong>하세요');
-    // 선택 카메라만으로 읽기 URL을 만들며, 활성 카메라나 고급 API를 변경하지 않는다.
-    expect(source).toContain('/api/stream?cameraId=${encodeURIComponent(cameraId)}&t=${Date.now()}');
-    expect(source).toContain('/api/snapshot?cameraId=${encodeURIComponent(cameraId)}&t=${Date.now()}');
-    expect(source).toContain("$('cameraSelect').addEventListener('change', () => { stopStream();");
-    expect(source).toContain("addEventListener('pagehide', () => { stopStream(); clearInterval(poller); poller=0; });");
-    expect(source).toContain("image.removeAttribute('src');");
-
-    // 레이아웃 재배치 뒤에도 discovery.js가 직접 소비하는 모든 ID는 정확히 한 번 남아야 한다.
-    const consumedIds = new Set([...source.matchAll(/\$\('([^']+)'\)/g)].map((match) => match[1]));
-    for (const id of consumedIds) {
-      expect(html.match(new RegExp(`id="${id}"`, 'g'))).toHaveLength(1);
-    }
+  it('discovery 화면은 구현을 모른다 — 단일 경로와 capability 만 쓴다', async () => {
+    const source = await (await fetch(`${base}/discovery.js`)).text();
+    expect(source).not.toContain('useBackendCore');
+    expect(source).not.toContain('independent-core');
+    expect(source).toContain("api('/api/core/center'");
+    expect(source).toContain('/api/core/capabilities');
   });
 
   it('점 추가 UI는 선택된 기존 점과 무관하게 collection POST를 만든다', async () => {
@@ -811,22 +808,21 @@ describe('영상·정적 파일', () => {
     expect((await api('/api/nope')).status).toBe(404);
   });
 
-  it('독립 CameraCore capability와 center는 선택 cameraId의 직접 Hucoms 경로만 사용한다', async () => {
-    const capability = await api('/api/independent-core/cameras/cam-a/capabilities');
-    expect(capability.status).toBe(200);
-    expect(capability.body).toEqual({ cameraId: 'cam-a', center: true, calibration: false, plateHoming: false, busy: false });
+  it('자체 코어 center 는 선택 cameraId 의 직접 Hucoms 경로만 쓴다', async () => {
+    const capability = await api('/api/core/capabilities?cameraId=cam-a');
+    expect(capability.body).toMatchObject({ cameraId: 'cam-a', provider: 'local', busy: false });
+    expect(capability.body.supported.center.ok).toBe(true);
 
-    const callsBeforeCenter = requestedUrls.length;
-    const centered = await api('/api/independent-core/cameras/cam-a/center', { method: 'POST', body: JSON.stringify({ x: 960, y: 540 }) });
+    requestedUrls = [];
+    const centered = await api('/api/core/center', { method: 'POST', body: JSON.stringify({ cameraId: 'cam-a', x: 960, y: 540 }) });
     expect(centered.status).toBe(200);
-    expect(centered.body).toMatchObject({ cameraId: 'cam-a', point: { x: 960, y: 540 }, settled: true });
-    const centerCalls = requestedUrls.slice(callsBeforeCenter);
-    expect(centerCalls.some((url) => url.includes('/ptz_centering.cgi'))).toBe(true);
-    expect(centerCalls.some((url) => url.includes('/api/center'))).toBe(false);
+    expect(centered.body).toMatchObject({ provider: 'local', cameraId: 'cam-a', settled: true });
+    expect(requestedUrls.some((url) => url.includes('ptz_centering.cgi'))).toBe(true);
+    expect(requestedUrls.some((url) => url.includes('127.0.0.1:8080'))).toBe(false);
   });
 
-  it('독립 CameraCore center는 논리 프레임 밖 좌표를 400으로 거부한다', async () => {
-    const response = await api('/api/independent-core/cameras/cam-a/center', { method: 'POST', body: JSON.stringify({ x: 1921, y: 540 }) });
+  it('자체 코어 center 는 논리 프레임 밖 좌표를 400 으로 거부한다', async () => {
+    const response = await api('/api/core/center', { method: 'POST', body: JSON.stringify({ cameraId: 'cam-a', x: 1921, y: 540 }) });
     expect(response.status).toBe(400);
     expect(response.body.error).toContain('x 는 0..1920 정수여야 합니다');
   });

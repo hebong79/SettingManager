@@ -17,6 +17,29 @@
 
   <main class="narrow">
     <section class="card">
+      <h2>코어 구현<span class="tag" id="coreTag">-</span></h2>
+      <div class="body">
+        <div class="row">
+          <div class="field" style="flex-basis:100%">
+            <label for="coreProvider">센터링·탐색·캘리브레이션·호밍을 무엇이 수행할까요</label>
+            <select id="coreProvider">
+              <option value="local">자체 코어 (SettingManager 안에서 직접)</option>
+              <option value="remote">backend-core 경유 (baro_calory)</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <button id="coreSave" class="primary">코어 구현 저장</button>
+        </div>
+        <p class="hint">
+          경로와 화면은 어느 쪽을 골라도 <b>같습니다</b> — 무엇을 할 수 있는지만 달라집니다.<br>
+          자체 코어는 아직 <b>센터링</b>만 지원합니다. 탐색·캘리브레이션·호밍은 backend-core 경유를 고르세요.<br>
+          지원하지 않는 기능은 <b>조용히 넘기지 않고</b> 사유와 함께 거절합니다.
+        </p>
+      </div>
+    </section>
+
+    <section class="card">
       <h2>BackendCore<span class="tag">주차면 탐색 전용</span></h2>
       <div class="body">
         <div class="row">
