@@ -539,7 +539,6 @@ describe('BackendCore 탐색 프록시', () => {
     ['/api/discovery/calibration/start', { mode: 'full' }],
     ['/api/center', { x: 10, y: 20 }],
     ['/api/discovery/plate-home/start', { presetId: 'd1' }],
-    ['/api/vla/tour', { zoomIn: false, saveSpots: false }],
   ])('checkbox opt-in 없는 고급 경로 %s 는 409로 막는다', async (path, body) => {
     const response = await api(path, { method: body ? 'POST' : 'GET', body: body ? JSON.stringify(body) : undefined });
     expect(response.status).toBe(409);
@@ -719,7 +718,6 @@ describe('영상·정적 파일', () => {
     expect(html).toContain('자동 작업');
     expect(html).toContain('캘리브레이션');
     expect(html).toContain('번호판 호밍');
-    expect(html).toContain('VLA 투어');
     expect(html).toContain('개별 센터+줌 (미지원)');
     expect(html).toContain('id="advanced"');
     expect(html).not.toContain('id="advanced" hidden');

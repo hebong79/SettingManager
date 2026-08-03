@@ -109,18 +109,16 @@ describe('BackendCoreClient 오류', () => {
 });
 
 describe('BackendCoreClient 탐색 계약', () => {
-  it('discovery point·센터·투어의 실제 경로와 body를 전달한다', async () => {
+  it('discovery point·센터의 실제 경로와 body를 전달한다', async () => {
     const fetchImpl = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => jsonResponse({ ok: true }));
     const subject = client(fetchImpl as unknown as typeof fetch);
     await subject.discoveryPoints('POST', 'p 1', undefined, { x: 10, y: 20 });
     await subject.center({ startX: 1, startY: 2, endX: 3, endY: 4 }, true);
-    await subject.vlaTour({ zoomIn: true, saveSpots: false });
     expect(fetchImpl.mock.calls.map((call) => call[0])).toEqual([
       'http://127.0.0.1:8080/api/discovery/presets/p%201/points',
       'http://127.0.0.1:8080/api/center-box',
-      'http://127.0.0.1:8080/api/vla/tour',
     ]);
-    expect(JSON.parse(String((fetchImpl.mock.calls[2]![1] as RequestInit).body))).toEqual({ zoomIn: true, saveSpots: false });
+    expect(JSON.parse(String((fetchImpl.mock.calls[0]![1] as RequestInit).body))).toEqual({ x: 10, y: 20 });
   });
 
   it('busy(409)와 capability(422)를 상위 API까지 보존한다', async () => {

@@ -123,10 +123,6 @@ export class BackendCoreClient implements CameraDriver {
     return this.discovery(action === 'status' ? 'GET' : 'POST', `/api/discovery/plate-home/${action}`, body);
   }
 
-  async vlaTour(body: BackendCoreJson): Promise<BackendCoreJson> {
-    return this.discovery('POST', '/api/vla/tour', body);
-  }
-
   private async json<T>(method: string, path: string, body?: unknown): Promise<T> {
     const response = await this.send(method, path, body);
     const text = await response.text();
