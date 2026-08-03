@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { waitForSettle } from '../src/clients/waitForSettle.js';
-import type { CameraDriver } from '../src/clients/cameraDriver.js';
+import { waitForSettle } from '../src/devices/waitForSettle.js';
+import type { CameraDriver } from '../src/devices/cameraDriver.js';
 import { isSameSpot, panDistance } from '../src/domain/settle.js';
 import type { PtzRaw } from '../src/domain/ptz.js';
 
@@ -27,6 +27,9 @@ function scriptedDriver(positions: PtzRaw[]): CameraDriver & { calls: number } {
     async goPtz() {},
     async getSnapshot() {
       return Buffer.alloc(0);
+    },
+    async getDevicePresetCapability() {
+      return { supported: false, advertisedMaxPresetNumber: 0, usableMaxPresetNumber: 0, listing: 'unsupported' as const, naming: 'unsupported' as const, slots: [] };
     },
     async listSlots() {
       return [];

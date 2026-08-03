@@ -1,0 +1,2 @@
+cd SettingMain
+npm start

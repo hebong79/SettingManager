@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import type { Slot } from '../clients/cameraDriver.js';
+import type { Slot } from '../devices/cameraDriver.js';
 import { SERVICE_ROOT } from '../config/configStore.js';
 
 export const DEFAULT_SLOT_PATH = resolve(SERVICE_ROOT, 'config', 'slots.json');

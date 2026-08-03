@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BackendCoreClient } from '../src/clients/backendCoreClient.js';
-import { CameraDriverError } from '../src/clients/cameraDriver.js';
+import { BackendCoreClient } from '../src/devices/backendCore/backendCoreClient.js';
+import { CameraDriverError } from '../src/devices/cameraDriver.js';
 
 /**
  * 응답 shape 근거 — baro_calory/apps/backend-core/src/:
@@ -51,6 +51,18 @@ describe('BackendCoreClient.goPtz', () => {
   });
 });
 
+describe('BackendCoreClient.centerPoint', () => {
+  it('BackendCore point-centering endpoint에 좌표를 POST 한다', async () => {
+    const fetchImpl = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => jsonResponse({ ok: true }));
+    await client(fetchImpl as unknown as typeof fetch).centerPoint({ x: 1400, y: 800 });
+
+    expect(fetchImpl.mock.calls[0]![0]).toBe('http://127.0.0.1:8080/api/center');
+    const init = fetchImpl.mock.calls[0]![1] as RequestInit;
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(String(init.body))).toEqual({ x: 1400, y: 800, frameWidth: 1920, frameHeight: 1080, speed: 50 });
+  });
+});
+
 describe('BackendCoreClient.listSlots', () => {
   it('시뮬 씬의 슬롯을 목록으로 옮긴다', async () => {
     const fetchImpl = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) =>
@@ -71,7 +83,17 @@ describe('BackendCoreClient.listSlots', () => {
 });
 
 describe('BackendCoreClient 오류', () => {
-  it('501 은 확정 답이므로 상태코드를 보존한다 — 상위가 일시 장애로 보고 재시도하면 안 된다', async () => {
+  it('HTML 400은 호환되지 않는 BackendCore endpoint라는 안전한 진단으로 바꾼다', async () => {
+    const fetchImpl = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) =>
+      new Response('<html><body><h1>400 Bad Request</h1></body></html>', { status: 400, headers: { 'content-type': 'text/html' } }),
+    );
+
+    await expect(client(fetchImpl as unknown as typeof fetch).center({ x: 1400, y: 800 })).rejects.toThrow(
+      /http:\/\/127\.0\.0\.1:8080\/api\/center.*BackendCore API.*Hucoms CGI.*RTSP/i,
+    );
+  });
+
+  it('501 은 확정 답이므로 상태코드를 보존한다 — 상위가 재시도하지 않도록 한다', async () => {
     const fetchImpl = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => jsonResponse({ error: '투영 오라클은 UE 연결에서만' }, 501));
     await expect(client(fetchImpl as unknown as typeof fetch).listSlots()).rejects.toMatchObject({ statusCode: 501 });
   });
@@ -87,18 +109,16 @@ describe('BackendCoreClient 오류', () => {
 });
 
 describe('BackendCoreClient 탐색 계약', () => {
-  it('discovery point·센터·투어의 실제 경로와 body를 전달한다', async () => {
+  it('discovery point·센터의 실제 경로와 body를 전달한다', async () => {
     const fetchImpl = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => jsonResponse({ ok: true }));
     const subject = client(fetchImpl as unknown as typeof fetch);
     await subject.discoveryPoints('POST', 'p 1', undefined, { x: 10, y: 20 });
     await subject.center({ startX: 1, startY: 2, endX: 3, endY: 4 }, true);
-    await subject.vlaTour({ zoomIn: true, saveSpots: false });
     expect(fetchImpl.mock.calls.map((call) => call[0])).toEqual([
       'http://127.0.0.1:8080/api/discovery/presets/p%201/points',
       'http://127.0.0.1:8080/api/center-box',
-      'http://127.0.0.1:8080/api/vla/tour',
     ]);
-    expect(JSON.parse(String((fetchImpl.mock.calls[2]![1] as RequestInit).body))).toEqual({ zoomIn: true, saveSpots: false });
+    expect(JSON.parse(String((fetchImpl.mock.calls[0]![1] as RequestInit).body))).toEqual({ x: 10, y: 20 });
   });
 
   it('busy(409)와 capability(422)를 상위 API까지 보존한다', async () => {

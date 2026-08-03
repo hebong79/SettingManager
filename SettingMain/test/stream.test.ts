@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { streamTransportFor } from '../src/stream/frameSource.js';
-import { authenticatedHttpUrl, httpMjpegFrames, HttpMjpegError, safeHttpUrl } from '../src/stream/httpMjpeg.js';
-import { splitJpegFrames } from '../src/stream/jpegFrames.js';
-import { authenticatedRtspUrl, buildFfmpegArgs, RtspUrlError, safeRtspUrl } from '../src/stream/rtspUrl.js';
+import { streamTransportFor } from '../src/media/frameSource.js';
+import { authenticatedHttpUrl, httpMjpegFrames, HttpMjpegError, safeHttpUrl } from '../src/media/httpMjpeg.js';
+import { splitJpegFrames } from '../src/media/jpegFrames.js';
+import { authenticatedRtspUrl, buildFfmpegArgs, RtspUrlError, safeRtspUrl } from '../src/media/rtspUrl.js';
 
 const SOI = [0xff, 0xd8];
 const EOI = [0xff, 0xd9];
