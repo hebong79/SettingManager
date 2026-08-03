@@ -8,6 +8,41 @@
 
 ---
 
+## 2026-08-03 (2) — MCP 양방향: (b) 완료, (a) 는 대상 없음
+
+### (b) 다른 에이전트 → MCP → SettingManager  ✅ 완료
+
+- `npm run mcp` (stdio). 도구는 **둘뿐**: `settingmanager_catalog` + `settingmanager_call`
+- **도구는 자기 REST 를 다시 부른다.** 인프로세스 직접 호출을 안 하는 이유는 검증·게이트·오류
+  매핑이 두 벌이 되어 갈라지기 때문 — 센터링 3중 경로로 겪은 그 실패다
+- **`movesCamera:true` 는 `confirm:true` 없이 거절**하고 요청 자체를 안 보낸다(40경로 중 10건)
+- 카탈로그 밖 경로도 거절 — 임의 요청 통로가 되면 안 된다
+- 카탈로그 드리프트는 **라우트 소스 스캔 테스트**가 잡는다(`/api/stream` 만 의도적 제외)
+- 등록 방법은 `docs/20260803_152442_MCP_양방향_설계와_b구현.md` §5
+
+### (a) SettingManager → MCP → backend-core  ⛔ 붙일 대상이 없다
+
+**baro_calory 에 MCP 서버가 없다**(실측): `.mcp.json` 에 chrome-devtools-mcp 뿐,
+소스에는 "(나중에) MCP" 주석만, SDK 의존도 없음.
+전송은 M4 에서 `BackendCoreTransport` 로 뽑아 뒀으니 **어댑터 한 개**면 되지만,
+없는 서버에 맞춰 지어내면 실제 도구가 생겼을 때 계약이 어긋난 채 굳는다.
+
+**마스터 결정 필요**: A1 baro_calory 에 MCP 서버 신설(그 저장소 수정 — 승인 필요) /
+A2 내가 모르는 다른 MCP 엔드포인트가 있다 / A3 HTTP 유지하고 생기면 그때.
+
+### 이번에 바뀐 전제
+
+- **런타임 의존성 0 → 2** (`@modelcontextprotocol/sdk`·`zod`). MCP 는 SDK 없이 못 만든다.
+  SettingAgent 가 쓰는 것과 같은 SDK다.
+- **라우트를 추가하면 `src/mcp/routeCatalog.ts` 에도 한 줄 추가해야 한다.** 빠뜨리면 테스트가 잡는다.
+
+### 함정
+
+| 함정 | 교훈 |
+|---|---|
+| 테스트가 MCP SDK 내부(`_registeredTools`)를 뒤졌다 | SDK 1.30 에서 깨졌다. **도구 알맹이를 `tools.ts` 로 분리**해 SDK 무관하게 테스트한다 |
+| MCP 서버는 SettingManager HTTP 가 떠 있어야 동작 | 안 떠 있으면 `ok:false` + ECONNREFUSED 로 정직하게 실패(조용한 성공 없음) |
+
 ## 2026-08-03 — 구조 정리 완료 (M1~M7): 단일 제어면 + 코어 포트
 
 ### 무엇이 바뀌었나
