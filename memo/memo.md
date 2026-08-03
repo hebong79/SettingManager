@@ -8,6 +8,53 @@
 
 ---
 
+## 2026-08-03 — 구조 정리 완료 (M1~M7): 단일 제어면 + 코어 포트
+
+### 무엇이 바뀌었나
+
+**같은 일(센터링)을 하는 경로가 셋이었고 화면이 체크박스로 골랐다.** 이걸 하나로 합쳤다.
+
+- `/api/core/*` 단일 제어면. 옛 경로 9종 삭제(404): `/api/discovery/*` · `/api/center` ·
+  `/api/center-box` · `/api/ptz/center` · `/api/independent-core/*` · `?useBackendCore=1`
+- 구현 선택은 **설정** `core.provider` (기본 **local**). 질의 파라미터가 아니다
+- `clients/`→`devices/`, `stream/`→`media/`, `server.ts` 542→74줄 + `api/routes/` 분할
+- 테스트 239 → **280**
+
+### 꼭 기억할 것
+
+1. **계약의 정본은 타입이 아니라 적합성 스위트**다(`test/coreProviderConformance.ts`).
+   LocalCore·RemoteCore 가 **같은 스위트**를 통과하는 것이 교체 가능성의 유일한 증거다.
+   스위트 자신이 판정하는지도 `coreProviderContract.test.ts` 가 검증한다.
+2. **구현 분기는 `core/providerFactory.ts` 하나뿐.** 라우트·화면에 `if (provider)` 가 없다.
+3. **자체 코어는 아직 센터링만** 지원한다. 탐색·캘리브·호밍은 501 + 사유이고,
+   쓰려면 옵션에서 backend-core 경유를 골라야 한다. **조용한 폴백은 금지**다.
+4. **전송은 `BackendCoreTransport` 로 분리**돼 있다 — MCP 어댑터를 붙여도 provider 는 안 바뀐다.
+5. `slots` 는 코어 능력이 아니다 — `driver.listSlots()` 와 `/api/slots` 가 담당한다.
+
+### 겪은 것
+
+| 함정 | 교훈 |
+|---|---|
+| 처음 계약을 "미지원이면 반드시 501"로 잡았다 | **읽기(status·list)는 못 하는 기기에서도 idle 을 읽는 게 거짓말이 아니다.** 판정 대상을 **행위**(start·create·center)로 좁히고, 금지 대상을 "조용한 성공"으로 정확히 했다 |
+| 적합성 스위트가 내 RemoteCore 구현의 결함 2건을 잡았다 | 미지원 능력을 그대로 원격에 흘려보내 조용히 성공하던 경로 · 오류에 엉뚱한 능력 이름 |
+| M1(순수 이동) 중 `driverFactory` 의 형제 import 가 깨졌다 | typecheck 가 즉시 잡았다. **이동과 기능 변경을 섞지 않은 판단이 값을 했다** |
+
+### 마스터 결정
+
+- Q1 캘리브·호밍을 **LocalCore 에 이식** + RemoteCore 와 **2개 공존**
+- Q2 코어 기본값 **local**, MCP 를 통한 remote 는 컴포넌트 역할
+- Q3 `/api/vla/tour` **제거**(차후 재생성 예정)
+- Q4 단계별 커밋·머지·문서화 후 확인
+
+### 다음 (M8~)
+
+1. `CalibrationComponent` — `@baro/profile` 솔버 + ZNCC 정합 TypeScript 이식 (가장 큰 덩어리)
+2. `PlateHomingComponent` + `DetectorClient` — 계약은 `Sub/lpd_api`·`Sub/vpd_api` 소스에서 확인
+3. `DiscoveryStore` — LocalCore 자체 탐색 저장소
+
+**미해결**: Q2 의 "MCP 를 통한" 이 (a) MCP 경유로 backend-core 호출인지
+(b) SettingManager 가 MCP 도구로 노출인지. 포트 계약은 어느 쪽이든 안 바뀌므로 M8 을 막지는 않는다.
+
 ## 2026-08-01 — 호칭 규칙
 
 - 사용자 호칭: **마스터**
