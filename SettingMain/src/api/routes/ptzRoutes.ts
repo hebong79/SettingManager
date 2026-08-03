@@ -1,7 +1,7 @@
 import { waitForSettle } from '../../devices/waitForSettle.js';
 import { limitedAxes, nudge, toView, type Axis, type PtzRaw } from '../../domain/ptz.js';
 import { HttpError, optionalNumber, readJsonBody, requireNumber, requireString, sendJson } from '../httpUtil.js';
-import { asId, requireCenterCoordinate, type RouteHandler } from './routeContext.js';
+import { asId, type RouteHandler } from './routeContext.js';
 
 const AXES: readonly Axis[] = ['pan', 'tilt', 'zoom'];
 
@@ -47,16 +47,6 @@ export const ptzRoutes: RouteHandler = async (ctx) => {
     return true;
   }
 
-  if (method === 'POST' && pathname === '/api/ptz/center') {
-    const body = await readJsonBody(req);
-    const point = { x: requireCenterCoordinate(body, 'x', 1920), y: requireCenterCoordinate(body, 'y', 1080) };
-    const { camera, driver } = driverFor(asId(body.cameraId));
-    if (!driver.centerPoint) throw new HttpError(501, '현재 카메라는 영상 클릭 센터링을 지원하지 않습니다');
-    await driver.centerPoint(point);
-    const settle = await waitForSettle(driver, deps.settleOptions);
-    sendJson(res, 200, { cameraId: camera.id, point, ptz: toView(settle.ptz), settled: settle.settled });
-    return true;
-  }
 
   return false;
 };

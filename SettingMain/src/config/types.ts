@@ -35,10 +35,21 @@ export interface StreamingConfig {
   startupTimeoutMs: number;
 }
 
+/** 어느 코어 구현으로 돌릴 것인가. **질의 파라미터가 아니라 설정**이다. */
+export type CoreProviderChoice = 'local' | 'remote';
+
+export interface CoreConfig {
+  /** 전역 기본값. */
+  provider: CoreProviderChoice;
+  /** 기기별 재정의. 있으면 전역을 이긴다. */
+  perCamera: Record<string, CoreProviderChoice>;
+}
+
 export interface AppConfig {
   server: { host: string; port: number };
   simulator: { baseUrl: string };
   streaming: StreamingConfig;
+  core: CoreConfig;
   activeCameraId: string;
   cameras: CameraConfig[];
 }
@@ -56,6 +67,7 @@ export type CameraPatch = Partial<CameraConfig> & { id: string; rtspUrl?: string
 /** 옵션 페이지가 보내는 갱신 요청. 비밀번호는 빈 문자열이면 기존 값을 유지한다. */
 export interface SettingsPatch {
   simulator?: { baseUrl?: string };
+  core?: { provider?: CoreProviderChoice; perCamera?: Record<string, CoreProviderChoice> };
   activeCameraId?: string;
   cameras?: CameraPatch[];
 }

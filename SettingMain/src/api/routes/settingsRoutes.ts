@@ -14,6 +14,7 @@ export const settingsRoutes: RouteHandler = async (ctx) => {
     if (method === 'GET') {
       sendJson(res, 200, {
         simulator: config.simulator,
+        core: config.core,
         streaming: config.streaming,
         activeCameraId: config.activeCameraId,
         cameras: config.cameras.map(toPublicCamera),
@@ -26,6 +27,7 @@ export const settingsRoutes: RouteHandler = async (ctx) => {
       sendJson(res, 200, {
         saved: true,
         simulator: next.simulator,
+        core: next.core,
         activeCameraId: next.activeCameraId,
         cameras: next.cameras.map(toPublicCamera),
       });

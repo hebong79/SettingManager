@@ -30,7 +30,8 @@ export const api = {
   ptz: (cameraId) => request('GET', `/api/ptz?cameraId=${encodeURIComponent(cameraId)}`),
   moveAbsolute: (cameraId, ptz) => request('POST', '/api/ptz/absolute', { cameraId, ...ptz }),
   nudge: (cameraId, axis, delta) => request('POST', '/api/ptz/nudge', { cameraId, axis, delta }),
-  centerPoint: (cameraId, point) => request('POST', '/api/ptz/center', { cameraId, ...point }),
+  centerPoint: (cameraId, point) => request('POST', '/api/core/center', { cameraId, ...point }),
+  coreCapabilities: (cameraId) => request('GET', `/api/core/capabilities?cameraId=${encodeURIComponent(cameraId)}`),
 
   presets: (cameraId) => request('GET', `/api/presets?cameraId=${encodeURIComponent(cameraId)}`),
   addPreset: (cameraId, name, ptz) => request('POST', '/api/presets', { cameraId, name, ptz }),

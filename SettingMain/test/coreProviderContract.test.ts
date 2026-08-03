@@ -43,7 +43,6 @@ function honestProvider(): CoreProvider {
     capabilities: async () => capabilities(),
     center: async () => deny('center' as never),
     centerBox: async () => deny('centerBox' as never),
-    listSlots: async () => deny('slots' as never),
     discoveryPresets: {
       list: async () => deny('discoveryPresets' as never),
       create: async () => deny('discoveryPresets' as never),

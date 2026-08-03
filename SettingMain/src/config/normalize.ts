@@ -1,4 +1,4 @@
-import type { AppConfig, CameraConfig, CameraKind, CameraPatch, PublicCamera, SettingsPatch, StreamingConfig } from './types.js';
+import type { AppConfig, CameraConfig, CameraKind, CameraPatch, CoreConfig, CoreProviderChoice, PublicCamera, SettingsPatch, StreamingConfig } from './types.js';
 
 /** 파일 I/O 없는 순수 정규화·병합 계층. 파서와 저장 로직이 같은 규칙을 쓰도록 여기 한 곳에 둔다. */
 
@@ -58,6 +58,7 @@ export function normalizeConfig(raw: unknown): AppConfig {
   const server = (r.server ?? {}) as Record<string, unknown>;
   const simulator = (r.simulator ?? {}) as Record<string, unknown>;
   const streaming = (r.streaming ?? {}) as Record<string, unknown>;
+  const core = normalizeCore(r.core);
 
   const cameras = (Array.isArray(r.cameras) ? r.cameras : [])
     .map(normalizeCamera)
@@ -80,9 +81,26 @@ export function normalizeConfig(raw: unknown): AppConfig {
       jpegQuality: int(streaming.jpegQuality, DEFAULT_STREAMING.jpegQuality, 1, 31),
       startupTimeoutMs: int(streaming.startupTimeoutMs, DEFAULT_STREAMING.startupTimeoutMs, 1000, 60_000),
     },
+    core,
     activeCameraId,
     cameras,
   };
+}
+
+/** 코어 구현 선택. 기본값은 **local** — 자체 구현이 정본이고 원격은 갈아 끼우는 쪽이다. */
+export function normalizeCore(raw: unknown): CoreConfig {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const perCamera: Record<string, CoreProviderChoice> = {};
+  const entries = (r.perCamera && typeof r.perCamera === 'object' ? r.perCamera : {}) as Record<string, unknown>;
+  for (const [cameraId, choice] of Object.entries(entries)) {
+    if (choice === 'local' || choice === 'remote') perCamera[cameraId] = choice;
+  }
+  return { provider: r.provider === 'remote' ? 'remote' : 'local', perCamera };
+}
+
+/** 이 카메라를 어느 구현으로 돌릴 것인가. 기기별 재정의가 전역을 이긴다. */
+export function coreProviderFor(config: AppConfig, cameraId: string): CoreProviderChoice {
+  return config.core.perCamera[cameraId] ?? config.core.provider;
 }
 
 /** 비밀번호를 제거한 공개 형태. 화면·API 응답은 반드시 이것만 쓴다. */
@@ -114,6 +132,7 @@ function promoteLegacyFields(change: CameraPatch): Partial<CameraConfig> & { id:
 export function mergeSettings(current: AppConfig, patch: SettingsPatch): AppConfig {
   const next: AppConfig = {
     ...current,
+    core: patch.core ? normalizeCore({ ...current.core, ...patch.core }) : current.core,
     simulator: { baseUrl: patch.simulator?.baseUrl !== undefined ? stripTrailingSlash(str(patch.simulator.baseUrl)) : current.simulator.baseUrl },
     cameras: current.cameras.map((camera) => {
       const change = patch.cameras?.find((c) => c.id === camera.id);

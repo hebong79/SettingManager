@@ -159,6 +159,16 @@ async function applyCamera() {
   }
 }
 
+async function saveCoreProvider() {
+  try {
+    const result = await api.saveSettings({ core: { provider: $('coreProvider').value } });
+    $('coreTag').textContent = result.core?.provider === 'remote' ? 'backend-core 경유' : '자체 코어';
+    toast(`코어 구현: ${result.core?.provider ?? $('coreProvider').value}`, 'ok');
+  } catch (error) {
+    reportError(error);
+  }
+}
+
 async function saveSimulatorUrl() {
   try {
     const result = await api.saveSettings({ simulator: { baseUrl: $('simulatorUrl').value.trim() } });
@@ -270,6 +280,7 @@ function wire() {
   $('makeActive').addEventListener('click', () => void makeActive());
   $('reload').addEventListener('click', () => void load(true).catch(reportError));
   $('addCamera').addEventListener('click', () => void addCamera());
+  $('coreSave').addEventListener('click', () => void saveCoreProvider());
   $('simulatorSave').addEventListener('click', () => void saveSimulatorUrl());
   $('applyCamera').addEventListener('click', () => void applyCamera());
   $('testCamera').addEventListener('click', () => void testCamera());

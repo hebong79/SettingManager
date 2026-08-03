@@ -3,12 +3,11 @@ import { CameraDriverError } from '../devices/cameraDriver.js';
 import { CoreBusyError, CoreUnsupportedError } from '../core/coreProvider.js';
 import { ConfigError } from '../config/normalize.js';
 import { PresetError } from '../domain/preset.js';
-import { IndependentCameraCore } from '../independentCameraCore/independentCameraCore.js';
 import { HttpError, sendError } from './httpUtil.js';
+import { CameraLeaseRegistry } from '../core/providerFactory.js';
+import { createCoreRoutes } from './routes/coreRoutes.js';
 import { devicePresetRoutes } from './routes/devicePresetRoutes.js';
-import { discoveryRoutes } from './routes/discoveryRoutes.js';
 import { healthRoutes } from './routes/healthRoutes.js';
-import { createIndependentCoreRoutes } from './routes/independentCoreRoutes.js';
 import { mediaRoutes } from './routes/mediaRoutes.js';
 import { presetRoutes, slotRoutes } from './routes/presetRoutes.js';
 import { ptzRoutes } from './routes/ptzRoutes.js';
@@ -23,14 +22,14 @@ export type { ServerDeps } from './routes/routeContext.js';
  * 요청 해석·검증·응답은 `routes/` 의 각 모듈이 소유하고, 여기에는 비즈니스 판단을 두지 않는다.
  */
 export function createServer(deps: ServerDeps): Server {
-  // 독립 코어는 프로세스 수명 동안 점유 상태를 들고 있어야 하므로 서버당 하나만 만든다.
-  const independentCore = new IndependentCameraCore(deps.settleOptions);
+  // 카메라별 점유는 프로세스 수명 동안 유지돼야 하므로 서버당 하나만 만든다.
+  const leases = new CameraLeaseRegistry();
+  const coreRoutes = createCoreRoutes({ leases, settleOptions: deps.settleOptions, fetchImpl: deps.fetchImpl });
 
   /** 순서가 계약이다 — 앞선 라우트가 false 를 돌려줘야 다음이 본다. */
   const handlers: RouteHandler[] = [
     healthRoutes,
-    createIndependentCoreRoutes(independentCore),
-    discoveryRoutes,
+    coreRoutes,
     settingsRoutes,
     devicePresetRoutes,
     ptzRoutes,

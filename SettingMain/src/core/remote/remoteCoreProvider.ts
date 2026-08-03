@@ -1,5 +1,5 @@
 import type { BackendCoreTransport } from '../../devices/backendCore/backendCoreTransport.js';
-import type { CenterPoint, Slot } from '../../devices/cameraDriver.js';
+import type { CenterPoint } from '../../devices/cameraDriver.js';
 import {
   allCapabilities,
   CoreUnsupportedError,
@@ -78,7 +78,6 @@ export class RemoteCoreProvider implements CoreProvider {
         center: { ok: true },
         // baro_calory 는 discovery point 에 box 좌표를 저장하지 않아 개별 센터+줌 경로가 없다.
         centerBox: { ok: false, reason: 'backend-core discovery point 는 box 좌표를 저장하지 않습니다' },
-        slots: { ok: true },
         discoveryPresets: { ok: true },
         discoveryPoints: { ok: true },
         calibration: gate(axisOk('calibration'), axisMissing('calibration')),
@@ -102,20 +101,6 @@ export class RemoteCoreProvider implements CoreProvider {
     throw new CoreUnsupportedError('centerBox', 'backend-core discovery point 는 box 좌표를 저장하지 않아 개별 센터+줌을 지원하지 않습니다');
   }
 
-  async listSlots(_ctx: CoreContext): Promise<Slot[]> {
-    const data = await this.t.json<{ slots?: unknown }>('GET', '/api/simulator/slots');
-    const slots = Array.isArray(data.slots) ? data.slots : [];
-    return slots.map((raw, index) => {
-      const s = (raw ?? {}) as Json;
-      const id = typeof s.id === 'string' ? s.id : String(s.id ?? index + 1);
-      return {
-        id,
-        label: typeof s.label === 'string' && s.label ? s.label : id,
-        occupied: typeof s.occupied === 'boolean' ? s.occupied : undefined,
-        carId: typeof s.carId === 'string' ? s.carId : null,
-      };
-    });
-  }
 
   readonly discoveryPresets: DiscoveryPresetPort = {
     list: async () => {
