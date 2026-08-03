@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import type { Server } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createServer } from '../src/api/server.js';
-import { CameraDriverError } from '../src/clients/cameraDriver.js';
+import { CameraDriverError } from '../src/devices/cameraDriver.js';
 import { ConfigStore } from '../src/config/configStore.js';
 import { PresetStore } from '../src/store/presetStore.js';
 import { SlotStore } from '../src/store/slotStore.js';

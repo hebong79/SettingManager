@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { HucomsClient } from '../src/clients/hucomsClient.js';
-import { CameraDriverError } from '../src/clients/cameraDriver.js';
-import { parseHucomsText, requireInt } from '../src/clients/hucomsText.js';
+import { HucomsClient } from '../src/devices/hucoms/hucomsClient.js';
+import { CameraDriverError } from '../src/devices/cameraDriver.js';
+import { parseHucomsText, requireInt } from '../src/devices/hucoms/hucomsText.js';
 
 /**
  * 와이어 근거:

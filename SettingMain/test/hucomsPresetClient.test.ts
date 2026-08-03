@@ -1,12 +1,12 @@
 import { createServer, type Server } from 'node:net';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
-import { HyucomsDirectPresetClient } from '../src/clients/hyucomsDirectPresetClient.js';
+import { HucomsPresetClient } from '../src/devices/hucoms/hucomsPresetClient.js';
 
 let socketServer: Server | undefined;
 let receivedRequest = '';
 
-async function direct(body: string, status = 200): Promise<HyucomsDirectPresetClient> {
+async function direct(body: string, status = 200): Promise<HucomsPresetClient> {
   socketServer = createServer((socket) => {
     socket.once('data', (request) => {
       receivedRequest = request.toString('utf8');
@@ -15,7 +15,7 @@ async function direct(body: string, status = 200): Promise<HyucomsDirectPresetCl
   });
   await new Promise<void>((resolve) => socketServer!.listen(0, '127.0.0.1', resolve));
   const port = (socketServer.address() as AddressInfo).port;
-  return new HyucomsDirectPresetClient({ baseUrl: `http://127.0.0.1:${port}/ignored`, username: 'admin', password: 's ecret', timeoutMs: 500 });
+  return new HucomsPresetClient({ baseUrl: `http://127.0.0.1:${port}/ignored`, username: 'admin', password: 's ecret', timeoutMs: 500 });
 }
 
 afterEach(async () => {
@@ -24,7 +24,7 @@ afterEach(async () => {
   receivedRequest = '';
 });
 
-describe('HyucomsDirectPresetClient', () => {
+describe('HucomsPresetClient', () => {
   it.each([
     ['Yes', null, 255],
     ['No', null, 0],
@@ -51,8 +51,8 @@ describe('HyucomsDirectPresetClient', () => {
   });
 
   it('http(s)가 아니거나 query가 섞인 base URL은 거부한다', () => {
-    expect(() => new HyucomsDirectPresetClient({ baseUrl: 'ftp://camera', username: '', password: '', timeoutMs: 10 })).toThrow(/http/);
-    expect(() => new HyucomsDirectPresetClient({ baseUrl: 'http://camera/?action=other', username: '', password: '', timeoutMs: 10 })).toThrow(/query/);
+    expect(() => new HucomsPresetClient({ baseUrl: 'ftp://camera', username: '', password: '', timeoutMs: 10 })).toThrow(/http/);
+    expect(() => new HucomsPresetClient({ baseUrl: 'http://camera/?action=other', username: '', password: '', timeoutMs: 10 })).toThrow(/query/);
   });
 
   it('gopreset은 제공 계약의 number query만 전송한다', async () => {

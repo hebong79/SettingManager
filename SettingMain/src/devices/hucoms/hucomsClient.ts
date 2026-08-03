@@ -1,5 +1,5 @@
-import { clampPtz, type PtzRaw } from '../domain/ptz.js';
-import { CameraDriverError, type CameraDriver, type CenterPoint, type Slot } from './cameraDriver.js';
+import { clampPtz, type PtzRaw } from '../../domain/ptz.js';
+import { CameraDriverError, type CameraDriver, type CenterPoint, type Slot } from '../cameraDriver.js';
 import { parseHucomsText, requireInt, type HucomsResponse } from './hucomsText.js';
 
 /**

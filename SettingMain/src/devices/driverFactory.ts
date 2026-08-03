@@ -1,7 +1,7 @@
 import type { AppConfig, CameraConfig } from '../config/types.js';
-import { BackendCoreClient } from './backendCoreClient.js';
+import { BackendCoreClient } from './backendCore/backendCoreClient.js';
 import { CameraDriverError, type CameraDriver } from './cameraDriver.js';
-import { HucomsClient } from './hucomsClient.js';
+import { HucomsClient } from './hucoms/hucomsClient.js';
 
 /**
  * 설정의 카메라 1건을 드라이버로 조립하는 **유일한 지점**.

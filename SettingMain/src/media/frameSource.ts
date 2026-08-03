@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import type { CameraDriver } from '../clients/cameraDriver.js';
+import type { CameraDriver } from '../devices/cameraDriver.js';
 import type { CameraConfig, StreamingConfig } from '../config/types.js';
 import { httpMjpegFrames } from './httpMjpeg.js';
 import { splitJpegFrames } from './jpegFrames.js';

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { waitForSettle } from '../src/clients/waitForSettle.js';
-import type { CameraDriver } from '../src/clients/cameraDriver.js';
+import { waitForSettle } from '../src/devices/waitForSettle.js';
+import type { CameraDriver } from '../src/devices/cameraDriver.js';
 import { isSameSpot, panDistance } from '../src/domain/settle.js';
 import type { PtzRaw } from '../src/domain/ptz.js';
 

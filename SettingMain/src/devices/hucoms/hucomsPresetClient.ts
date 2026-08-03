@@ -1,13 +1,13 @@
 import { request as httpRequest, type IncomingMessage } from 'node:http';
 import { request as httpsRequest } from 'node:https';
-import { CameraDriverError, type DevicePresetCapability } from './cameraDriver.js';
-import type { PtzRaw } from '../domain/ptz.js';
+import { CameraDriverError, type DevicePresetCapability } from '../cameraDriver.js';
+import type { PtzRaw } from '../../domain/ptz.js';
 import { parseHucomsText } from './hucomsText.js';
 
 const CAPABILITY_PATH = '/cgi-bin/control/capabilityptz.cgi';
 const MAX_RESPONSE_BYTES = 64 * 1024;
 
-export interface HyucomsDirectPresetClientOptions {
+export interface HucomsPresetClientOptions {
   baseUrl: string;
   username: string;
   password: string;
@@ -18,10 +18,10 @@ export interface HyucomsDirectPresetClientOptions {
  * Hucoms 장비 프리셋 전용 native HTTP 전송 경계다.
  * 일부 장비가 LF-only header를 보내므로 insecureHTTPParser는 이 클래스 요청에만 한정한다.
  */
-export class HyucomsDirectPresetClient {
+export class HucomsPresetClient {
   private readonly endpoint: URL;
 
-  constructor(private readonly options: HyucomsDirectPresetClientOptions) {
+  constructor(private readonly options: HucomsPresetClientOptions) {
     this.endpoint = capabilityUrl(options);
   }
 
@@ -131,7 +131,7 @@ export class HyucomsDirectPresetClient {
   }
 }
 
-function capabilityUrl(options: HyucomsDirectPresetClientOptions): URL {
+function capabilityUrl(options: HucomsPresetClientOptions): URL {
   let base: URL;
   try {
     base = new URL(options.baseUrl);

@@ -1,6 +1,6 @@
-import type { CameraDriver } from '../clients/cameraDriver.js';
+import type { CameraDriver } from '../devices/cameraDriver.js';
 import type { PtzRaw } from '../domain/ptz.js';
-import { waitForSettle, type SettleOptions } from '../clients/waitForSettle.js';
+import { waitForSettle, type SettleOptions } from '../devices/waitForSettle.js';
 import { CameraLeaseRegistry } from './cameraLease.js';
 
 export interface CenterPoint { x: number; y: number; }

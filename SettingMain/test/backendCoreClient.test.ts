@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BackendCoreClient } from '../src/clients/backendCoreClient.js';
-import { CameraDriverError } from '../src/clients/cameraDriver.js';
+import { BackendCoreClient } from '../src/devices/backendCore/backendCoreClient.js';
+import { CameraDriverError } from '../src/devices/cameraDriver.js';
 
 /**
  * 응답 shape 근거 — baro_calory/apps/backend-core/src/:

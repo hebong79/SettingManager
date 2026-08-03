@@ -1,5 +1,5 @@
-import { clampPtz, type PtzRaw } from '../domain/ptz.js';
-import { CameraDriverError, type CameraDriver, type CenterPoint, type Slot } from './cameraDriver.js';
+import { clampPtz, type PtzRaw } from '../../domain/ptz.js';
+import { CameraDriverError, type CameraDriver, type CenterPoint, type Slot } from '../cameraDriver.js';
 
 /**
  * baro_calory backend-core 의 REST 제어면 드라이버(시뮬레이터 포함).

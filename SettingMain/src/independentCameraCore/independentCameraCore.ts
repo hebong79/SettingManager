@@ -1,5 +1,5 @@
-import type { CameraDriver } from '../clients/cameraDriver.js';
-import type { SettleOptions } from '../clients/waitForSettle.js';
+import type { CameraDriver } from '../devices/cameraDriver.js';
+import type { SettleOptions } from '../devices/waitForSettle.js';
 import { CameraLeaseRegistry } from './cameraLease.js';
 import { CenteringComponent, type CenterPoint, type CenteringResult } from './centeringComponent.js';
 

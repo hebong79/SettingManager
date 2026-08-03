@@ -1,16 +1,16 @@
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { CameraDriverError } from '../clients/cameraDriver.js';
-import { createDriver, findCamera } from '../clients/driverFactory.js';
-import { HyucomsDirectPresetClient } from '../clients/hyucomsDirectPresetClient.js';
-import { BackendCoreClient } from '../clients/backendCoreClient.js';
-import { waitForSettle, type SettleOptions } from '../clients/waitForSettle.js';
+import { CameraDriverError } from '../devices/cameraDriver.js';
+import { createDriver, findCamera } from '../devices/driverFactory.js';
+import { HucomsPresetClient } from '../devices/hucoms/hucomsPresetClient.js';
+import { BackendCoreClient } from '../devices/backendCore/backendCoreClient.js';
+import { waitForSettle, type SettleOptions } from '../devices/waitForSettle.js';
 import type { ConfigStore } from '../config/configStore.js';
 import { ConfigError, mergeSettings, toPublicCamera } from '../config/normalize.js';
 import type { CameraConfig, SettingsPatch } from '../config/types.js';
 import { PresetError } from '../domain/preset.js';
 import { clampPtz, limitedAxes, nudge, toView, type Axis, type PtzRaw } from '../domain/ptz.js';
 import type { DevicePresetRegistryStore } from '../store/devicePresetRegistryStore.js';
-import { createFrameSource } from '../stream/frameSource.js';
+import { createFrameSource } from '../media/frameSource.js';
 import type { PresetStore } from '../store/presetStore.js';
 import type { SlotStore } from '../store/slotStore.js';
 import { HttpError, optionalNumber, readJsonBody, requireNumber, requireString, sendError, sendJson } from './httpUtil.js';
@@ -28,7 +28,7 @@ export interface ServerDeps {
   /** 정착 대기 파라미터. 테스트가 실제 시간을 흘려보내지 않도록 주입한다. */
   settleOptions?: SettleOptions;
   /** 장비 capability 직접 조회의 테스트 주입 지점. production에서는 native HTTP adapter를 쓴다. */
-  directPresetClientFactory?: (camera: CameraConfig) => Pick<HyucomsDirectPresetClient, 'getCapability'> & Partial<Pick<HyucomsDirectPresetClient, 'goPreset' | 'getPtz' | 'goPtz'>>;
+  directPresetClientFactory?: (camera: CameraConfig) => Pick<HucomsPresetClient, 'getCapability'> & Partial<Pick<HucomsPresetClient, 'goPreset' | 'getPtz' | 'goPtz'>>;
 }
 
 const AXES: readonly Axis[] = ['pan', 'tilt', 'zoom'];
@@ -144,7 +144,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, deps: ServerDep
     const config = deps.configStore.get();
     const camera = findCamera(config, searchParams.get('cameraId') ?? undefined);
     if (camera.kind !== 'hucoms') throw new HttpError(501, '현재 카메라는 장비 프리셋 capability를 지원하지 않습니다');
-    const directClient = deps.directPresetClientFactory?.(camera) ?? new HyucomsDirectPresetClient({
+    const directClient = deps.directPresetClientFactory?.(camera) ?? new HucomsPresetClient({
       baseUrl: camera.controlUrl,
       username: camera.username,
       password: camera.password,
@@ -378,8 +378,8 @@ async function handle(req: IncomingMessage, res: ServerResponse, deps: ServerDep
   sendError(res, 404, `찾을 수 없습니다: ${method} ${pathname}`);
 }
 
-function createDirectPresetClient(camera: CameraConfig, deps: ServerDeps): Pick<HyucomsDirectPresetClient, 'getCapability'> & Partial<Pick<HyucomsDirectPresetClient, 'goPreset' | 'getPtz' | 'goPtz'>> {
-  return deps.directPresetClientFactory?.(camera) ?? new HyucomsDirectPresetClient({
+function createDirectPresetClient(camera: CameraConfig, deps: ServerDeps): Pick<HucomsPresetClient, 'getCapability'> & Partial<Pick<HucomsPresetClient, 'goPreset' | 'getPtz' | 'goPtz'>> {
+  return deps.directPresetClientFactory?.(camera) ?? new HucomsPresetClient({
     baseUrl: camera.controlUrl,
     username: camera.username,
     password: camera.password,
@@ -400,7 +400,7 @@ function readEmptyDevicePresetBody(body: Record<string, unknown>): 'synced' {
   return 'synced';
 }
 
-function requireDirectPresetMover(client: Pick<HyucomsDirectPresetClient, 'getCapability'> & Partial<Pick<HyucomsDirectPresetClient, 'goPreset' | 'getPtz' | 'goPtz'>>): Pick<HyucomsDirectPresetClient, 'goPreset' | 'getPtz' | 'goPtz'> {
+function requireDirectPresetMover(client: Pick<HucomsPresetClient, 'getCapability'> & Partial<Pick<HucomsPresetClient, 'goPreset' | 'getPtz' | 'goPtz'>>): Pick<HucomsPresetClient, 'goPreset' | 'getPtz' | 'goPtz'> {
   if (!client.goPreset || !client.getPtz || !client.goPtz) throw new HttpError(500, '장비 프리셋 직접 어댑터가 이동 계약을 제공하지 않습니다');
   return { goPreset: client.goPreset.bind(client), getPtz: client.getPtz.bind(client), goPtz: client.goPtz.bind(client) };
 }
