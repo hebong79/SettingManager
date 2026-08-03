@@ -1,5 +1,6 @@
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { CameraDriverError } from '../devices/cameraDriver.js';
+import { CoreBusyError, CoreUnsupportedError } from '../core/coreProvider.js';
 import { ConfigError } from '../config/normalize.js';
 import { PresetError } from '../domain/preset.js';
 import { IndependentCameraCore } from '../independentCameraCore/independentCameraCore.js';
@@ -66,6 +67,8 @@ function fail(res: ServerResponse, error: unknown): void {
   if (res.writableEnded) return;
   if (error instanceof HttpError) return sendError(res, error.status, error.message);
   if (error instanceof PresetError) return sendError(res, error.statusCode, error.message);
+  if (error instanceof CoreUnsupportedError) return sendError(res, error.statusCode, error.message);
+  if (error instanceof CoreBusyError) return sendError(res, error.statusCode, error.message);
   if (error instanceof CameraDriverError) return sendError(res, error.statusCode, error.message);
   if (error instanceof ConfigError) return sendError(res, error.statusCode, error.message);
   sendError(res, 500, error instanceof Error ? error.message : String(error));
