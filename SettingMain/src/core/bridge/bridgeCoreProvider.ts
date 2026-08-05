@@ -19,7 +19,7 @@ import {
 import { CameraLeaseError, CameraLeaseRegistry } from './cameraLease.js';
 
 /**
- * SettingManager 자체 코어 구현.
+ * SettingManager 자체 코어 구현 — 구성도의 **Bridge Backend-Core**.
  *
  * **backend-core 를 호출하지 않는다** — 선택된 카메라의 드라이버만 쓴다.
  * 아직 못 하는 것은 조용히 원격으로 흘려보내지 않고 **501 확정 답**으로 거절한다.
@@ -32,20 +32,20 @@ import { CameraLeaseError, CameraLeaseRegistry } from './cameraLease.js';
  */
 
 const NOT_YET = (capability: CoreCapabilityName, what: string): never => {
-  throw new CoreUnsupportedError(capability, `자체 코어는 아직 ${what}을(를) 지원하지 않습니다 — 옵션에서 코어 구현을 backend-core 로 바꾸면 쓸 수 있습니다`);
+  throw new CoreUnsupportedError(capability, `브리지 코어는 아직 ${what}을(를) 지원하지 않습니다 — 옵션에서 코어 구현을 backend-core 로 바꾸면 쓸 수 있습니다`);
 };
 
-export interface LocalCoreProviderOptions {
+export interface BridgeCoreProviderOptions {
   leases?: CameraLeaseRegistry;
   settleOptions?: SettleOptions;
 }
 
-export class LocalCoreProvider implements CoreProvider {
-  readonly name = 'local' as const;
+export class BridgeCoreProvider implements CoreProvider {
+  readonly name = 'bridge' as const;
   private readonly leases: CameraLeaseRegistry;
   private readonly settleOptions?: SettleOptions;
 
-  constructor(options: LocalCoreProviderOptions = {}) {
+  constructor(options: BridgeCoreProviderOptions = {}) {
     this.leases = options.leases ?? new CameraLeaseRegistry();
     this.settleOptions = options.settleOptions;
   }
@@ -58,11 +58,14 @@ export class LocalCoreProvider implements CoreProvider {
       busy: this.leases.isBusy(ctx.camera.id),
       supported: {
         center: canCenter ? { ok: true } : { ok: false, reason: '이 카메라 드라이버는 픽셀 센터링을 지원하지 않습니다' },
-        centerBox: { ok: false, reason: '자체 코어는 아직 영역(박스) 센터링을 지원하지 않습니다' },
-        discoveryPresets: { ok: false, reason: '자체 코어는 아직 탐색 프리셋 저장소를 갖고 있지 않습니다' },
-        discoveryPoints: { ok: false, reason: '자체 코어는 아직 탐색 점 저장소를 갖고 있지 않습니다' },
-        calibration: { ok: false, reason: '자체 코어는 아직 캘리브레이션을 지원하지 않습니다 (2단계 예정)' },
-        plateHoming: { ok: false, reason: '자체 코어는 아직 번호판 호밍을 지원하지 않습니다 (3단계 예정)' },
+        centerBox: { ok: false, reason: '브리지 코어는 아직 영역(박스) 센터링을 지원하지 않습니다' },
+        discoveryPresets: { ok: false, reason: '브리지 코어는 아직 탐색 프리셋 저장소를 갖고 있지 않습니다' },
+        discoveryPoints: { ok: false, reason: '브리지 코어는 아직 탐색 점 저장소를 갖고 있지 않습니다' },
+        calibration: { ok: false, reason: '브리지 코어는 아직 캘리브레이션을 지원하지 않습니다 (2단계 예정)' },
+        plateHoming: { ok: false, reason: '브리지 코어는 아직 번호판 호밍을 지원하지 않습니다 (3단계 예정)' },
+        // 아래 둘은 실행 표면(포트)조차 없다 — 계약이 확정되면 포트와 함께 켠다.
+        vehicleBox: { ok: false, reason: '브리지 코어는 아직 차량 3D 육면체 관리를 지원하지 않습니다' },
+        slotCreate: { ok: false, reason: '브리지 코어는 아직 주차면 생성을 지원하지 않습니다' },
       },
     };
   }

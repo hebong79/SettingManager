@@ -71,13 +71,19 @@ function renderEditor() {
 function applyStreamHint() {
   const raw = $('fieldStreamUrl').value.trim();
   const url = raw.toLowerCase();
+  const kind = selected()?.kind;
   let text;
   if (url.startsWith('rtsp://') || url.startsWith('rtsps://')) text = '→ RTSP 를 ffmpeg 로 MJPEG 전사합니다 (ffmpeg 필요).';
-  else if (url.startsWith('http://') || url.startsWith('https://')) text = '→ 연속 MJPEG 를 그대로 중계합니다 (UE 시뮬 직결 포트 = 제어 포트 + 10).';
+  else if (url.startsWith('http://') || url.startsWith('https://')) {
+    // 포트 짝 규칙은 UE 시뮬(hucoms) 것이다. Park3D 는 제어와 영상이 같은 포트라 그 안내가 오히려 오해를 부른다.
+    text = kind === 'park3d-rpc'
+      ? '→ 연속 MJPEG 를 그대로 중계합니다 (Park3D 는 같은 포트의 /stream 을 중계합니다).'
+      : '→ 연속 MJPEG 를 그대로 중계합니다 (UE 시뮬 직결 포트 = 제어 포트 + 10).';
+  }
   else if (url) text = '⚠ 알 수 없는 스킴입니다 — rtsp:// 또는 http:// 로 시작해야 합니다. 지금 값은 스냅샷 폴링으로 처리됩니다.';
   else text = '→ 비어 있음: 스냅샷을 반복해서 받아 영상처럼 보여줍니다.';
 
-  const mismatch = portPairWarning($('fieldControlUrl').value.trim(), raw);
+  const mismatch = portPairWarning($('fieldControlUrl').value.trim(), raw, kind);
   $('streamHint').textContent = mismatch ? `${text}  ${mismatch}` : text;
   $('streamHint').style.color = mismatch ? 'var(--warn)' : '';
 }
@@ -87,7 +93,10 @@ function applyStreamHint() {
  * 짝이 어긋나면 다른 카메라의 영상을 보게 되고, PTZ 숫자는 바뀌는데 화면은 그대로라
  * "버튼이 동작하지 않는다"로 보인다(실제로 겪은 증상). 조용히 두면 원인을 짚을 수 없다.
  */
-function portPairWarning(controlUrl, streamUrl) {
+function portPairWarning(controlUrl, streamUrl, kind) {
+  // Park3D 는 제어(POST /rpc)와 영상(/stream)이 **같은 포트**라 +10 규칙이 성립하지 않는다.
+  // 게이트를 두지 않으면 정상 설정에 항상 거짓 경고가 떠서, 진짜 경고까지 무시하게 된다.
+  if (kind === 'park3d-rpc') return '';
   let control;
   let stream;
   try {
@@ -162,7 +171,7 @@ async function applyCamera() {
 async function saveCoreProvider() {
   try {
     const result = await api.saveSettings({ core: { provider: $('coreProvider').value } });
-    $('coreTag').textContent = result.core?.provider === 'remote' ? 'backend-core 경유' : '자체 코어';
+    $('coreTag').textContent = result.core?.provider === 'remote' ? 'backend-core 경유' : '브리지 코어';
     toast(`코어 구현: ${result.core?.provider ?? $('coreProvider').value}`, 'ok');
   } catch (error) {
     reportError(error);

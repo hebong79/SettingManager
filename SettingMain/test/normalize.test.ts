@@ -59,6 +59,46 @@ describe('normalizeConfig', () => {
   });
 });
 
+describe('park3d-rpc 카메라', () => {
+  it('kind 로 인정한다 — 알 수 없는 kind 를 hucoms 로 떨어뜨리는 규칙에 걸리지 않는다', () => {
+    expect(normalizeCamera({ id: 'x', kind: 'park3d-rpc' })?.kind).toBe('park3d-rpc');
+  });
+
+  it('camId 는 문자열로 와도 양의 정수로 읽는다', () => {
+    expect(normalizeCamera({ id: 'x', kind: 'park3d-rpc', camId: '2' })?.camId).toBe(2);
+  });
+
+  it('유효하지 않은 camId 는 보정하지 않고 필드를 만들지 않는다 — 1 로 때우면 엉뚱한 카메라를 움직인다', () => {
+    for (const bad of [0, -1, 1.5, 'abc', '', null]) {
+      const camera = normalizeCamera({ id: 'x', kind: 'park3d-rpc', camId: bad });
+      expect(camera).not.toHaveProperty('camId');
+    }
+  });
+
+  it('park3d-rpc 가 아닌 카메라에는 camId 키가 생기지 않는다', () => {
+    expect(normalizeCamera({ id: 'x', kind: 'hucoms' })).not.toHaveProperty('camId');
+  });
+
+  it('설정에 옛 token 값이 남아 있어도 조용히 버린다 — 이 종류는 인증을 쓰지 않는다', () => {
+    expect(normalizeCamera({ id: 'x', kind: 'park3d-rpc', token: 'apark3d' })).not.toHaveProperty('token');
+  });
+
+  it('저장(병합)을 거쳐도 kind 와 camId 가 유지된다', () => {
+    const config = normalizeConfig({
+      activeCameraId: 'sim-2',
+      cameras: [{ id: 'sim-2', kind: 'park3d-rpc', controlUrl: 'http://192.168.0.125:13510', streamUrl: 'http://192.168.0.125:13510/stream', camId: 1 }],
+    });
+    const next = mergeSettings(config, { cameras: [{ id: 'sim-2', label: '이름만 변경' }] });
+    expect(next.cameras[0]).toMatchObject({ kind: 'park3d-rpc', camId: 1, label: '이름만 변경' });
+  });
+
+  it('camId 는 비밀이 아니므로 공개 응답에 그대로 실린다 — 값이 있는 카메라에만', () => {
+    const camera = normalizeCamera({ id: 'sim-2', kind: 'park3d-rpc', camId: 1 })!;
+    expect(toPublicCamera(camera).camId).toBe(1);
+    expect(toPublicCamera(baseConfig().cameras[0]!)).not.toHaveProperty('camId');
+  });
+});
+
 describe('toPublicCamera — 비밀번호는 절대 나가지 않는다', () => {
   it('password 필드가 사라지고 보유 여부만 남는다', () => {
     const publicCamera = toPublicCamera(baseConfig().cameras[0]!);

@@ -3,8 +3,8 @@ import type { SettleOptions } from '../devices/waitForSettle.js';
 import { coreProviderFor } from '../config/normalize.js';
 import type { AppConfig, CameraConfig } from '../config/types.js';
 import type { CoreProvider } from './coreProvider.js';
-import { CameraLeaseRegistry } from './local/cameraLease.js';
-import { LocalCoreProvider } from './local/localCoreProvider.js';
+import { CameraLeaseRegistry } from './bridge/cameraLease.js';
+import { BridgeCoreProvider } from './bridge/bridgeCoreProvider.js';
 import { RemoteCoreProvider } from './remote/remoteCoreProvider.js';
 
 /**
@@ -32,7 +32,7 @@ export function createCoreProvider(camera: CameraConfig, config: AppConfig, deps
       }),
     });
   }
-  return new LocalCoreProvider({ leases: deps.leases, settleOptions: deps.settleOptions });
+  return new BridgeCoreProvider({ leases: deps.leases, settleOptions: deps.settleOptions });
 }
 
 export { CameraLeaseRegistry };

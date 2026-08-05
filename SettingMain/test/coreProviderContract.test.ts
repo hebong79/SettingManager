@@ -16,9 +16,15 @@ import { checkCapabilitiesShape, checkJobLifecycle, checkUnsupportedRejects } fr
 
 const CTX = { camera: { id: 'cam-a' }, driver: {} } as unknown as CoreContext;
 
+/** 포트가 아직 없는 능력들. 어떤 구현도 이것들을 `ok:true` 로 답할 수 없다. */
+const PORTLESS_DENIED = {
+  vehicleBox: { ok: false, reason: '포트 없음' },
+  slotCreate: { ok: false, reason: '포트 없음' },
+} as const;
+
 function capabilities(overrides: Partial<CoreCapabilities> = {}): CoreCapabilities {
   return {
-    provider: 'local',
+    provider: 'bridge',
     cameraId: 'cam-a',
     busy: false,
     supported: allCapabilities({ ok: false, reason: '아직 구현하지 않았습니다' }),
@@ -39,7 +45,7 @@ function honestProvider(): CoreProvider {
     stop: async () => deny(capability as never),
   });
   return {
-    name: 'local',
+    name: 'bridge',
     capabilities: async () => capabilities(),
     center: async () => deny('center' as never),
     centerBox: async () => deny('centerBox' as never),
@@ -63,30 +69,30 @@ function honestProvider(): CoreProvider {
 
 describe('checkCapabilitiesShape', () => {
   it('정직한 선언은 위반이 없다', () => {
-    expect(checkCapabilitiesShape(capabilities(), 'local', 'cam-a')).toEqual([]);
+    expect(checkCapabilitiesShape(capabilities(), 'bridge', 'cam-a')).toEqual([]);
   });
 
   it('능력을 빠뜨리면 잡는다 — 빠진 능력은 화면이 버튼을 그릴 근거를 잃는다', () => {
     const broken = capabilities();
     delete (broken.supported as Record<string, unknown>).calibration;
-    expect(checkCapabilitiesShape(broken, 'local', 'cam-a')).toEqual([
+    expect(checkCapabilitiesShape(broken, 'bridge', 'cam-a')).toEqual([
       expect.stringContaining('supported.calibration'),
     ]);
   });
 
   it('미지원인데 사유가 없으면 잡는다', () => {
     const broken = capabilities({ supported: { ...allCapabilities({ ok: true }), center: { ok: false } } });
-    expect(checkCapabilitiesShape(broken, 'local', 'cam-a')).toEqual([expect.stringContaining('사유(reason)가 없습니다')]);
+    expect(checkCapabilitiesShape(broken, 'bridge', 'cam-a')).toEqual([expect.stringContaining('사유(reason)가 없습니다')]);
   });
 
   it('provider 이름이 어긋나면 잡는다', () => {
-    expect(checkCapabilitiesShape(capabilities({ provider: 'remote' }), 'local', 'cam-a')).toEqual([
+    expect(checkCapabilitiesShape(capabilities({ provider: 'remote' }), 'bridge', 'cam-a')).toEqual([
       expect.stringContaining('provider'),
     ]);
   });
 
   it('cameraId 가 어긋나면 잡는다', () => {
-    expect(checkCapabilitiesShape(capabilities(), 'local', 'cam-b')).toEqual([expect.stringContaining('cameraId')]);
+    expect(checkCapabilitiesShape(capabilities(), 'bridge', 'cam-b')).toEqual([expect.stringContaining('cameraId')]);
   });
 });
 
@@ -125,8 +131,18 @@ describe('checkUnsupportedRejects', () => {
 
   it('지원한다고 선언한 능력은 검사하지 않는다 — 여기서 실제 동작까지 보지는 않는다', async () => {
     const provider = honestProvider();
-    const claimed = capabilities({ supported: allCapabilities({ ok: true }) });
+    const claimed = capabilities({ supported: { ...allCapabilities({ ok: true }), ...PORTLESS_DENIED } });
     expect(await checkUnsupportedRejects(provider, CTX, claimed)).toEqual([]);
+  });
+
+  it('실행 표면이 없는 능력을 할 수 있다고 답하면 잡는다 — 켜진 버튼이 아무 일도 하지 않게 된다', async () => {
+    const provider = honestProvider();
+    const claimed = capabilities({ supported: allCapabilities({ ok: true }) });
+    const violations = await checkUnsupportedRejects(provider, CTX, claimed);
+    expect(violations).toEqual([
+      expect.stringContaining('vehicleBox 은(는) 실행 표면(포트)이 없는데'),
+      expect.stringContaining('slotCreate 은(는) 실행 표면(포트)이 없는데'),
+    ]);
   });
 });
 

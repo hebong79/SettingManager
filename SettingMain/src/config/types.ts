@@ -6,8 +6,11 @@
  *                   — UE 시뮬은 별도 프로토콜이 아니라 Hucoms CGI 를 그대로 모사한다
  *                   (실측 확인: `192.168.0.22:8083` 이 `getptzfpos` 에 정상 응답).
  * - `backend-core`: baro_calory backend-core 의 REST 제어면(`/api/ptz` 등)을 **경유**한다.
+ * - `park3d-rpc`  : 언리얼 Park3D JSON-RPC 서버(`POST /rpc` — `cam.getPTZ`·`cam.setPTZ`).
+ *                   **Hucoms CGI 가 아니다** — 같은 시뮬레이터라도 프로토콜이 다르고,
+ *                   `/cgi-bin/...` 을 두드리면 404(`route_handler_not_found`)가 난다.
  */
-export type CameraKind = 'hucoms' | 'backend-core';
+export type CameraKind = 'hucoms' | 'backend-core' | 'park3d-rpc';
 
 export interface CameraConfig {
   id: string;
@@ -25,6 +28,8 @@ export interface CameraConfig {
    */
   streamUrl: string;
   timeoutMs: number;
+  /** park3d-rpc 전용. 서버가 요구하는 카메라 번호로 **1-based** 다. 없으면 드라이버가 400 으로 거절한다. */
+  camId?: number;
 }
 
 export interface StreamingConfig {
@@ -35,8 +40,12 @@ export interface StreamingConfig {
   startupTimeoutMs: number;
 }
 
-/** 어느 코어 구현으로 돌릴 것인가. **질의 파라미터가 아니라 설정**이다. */
-export type CoreProviderChoice = 'local' | 'remote';
+/**
+ * 어느 코어 구현으로 돌릴 것인가. **질의 파라미터가 아니라 설정**이다.
+ * `bridge` = 자체 구현(구성도의 Bridge Backend-Core) · `remote` = backend-core 경유.
+ * 옛 값 `"local"` 은 `bridge` 의 이전 이름이며 `normalizeCore` 가 그대로 읽어 준다.
+ */
+export type CoreProviderChoice = 'bridge' | 'remote';
 
 export interface CoreConfig {
   /** 전역 기본값. */
@@ -45,11 +54,28 @@ export interface CoreConfig {
   perCamera: Record<string, CoreProviderChoice>;
 }
 
+/**
+ * 검출 서비스 1개의 접속 정보. `baseUrl` 이 비어 있으면 **설정되지 않은 것**이고,
+ * 그 검출기를 부르면 501 로 거절된다(빈 URL 로 호출을 시도하지 않는다).
+ */
+export interface DetectorEndpointConfig {
+  baseUrl: string;
+  timeoutMs: number;
+}
+
+/** 구성도의 API 계층. 셋 다 SettingManager 밖에서 도는 별도 서비스다. */
+export interface DetectorsConfig {
+  vpd: DetectorEndpointConfig;
+  lpd: DetectorEndpointConfig;
+  lpr: DetectorEndpointConfig;
+}
+
 export interface AppConfig {
   server: { host: string; port: number };
   simulator: { baseUrl: string };
   streaming: StreamingConfig;
   core: CoreConfig;
+  detectors: DetectorsConfig;
   activeCameraId: string;
   cameras: CameraConfig[];
 }

@@ -67,9 +67,9 @@ describe('settingmanager_call 도구', () => {
     new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
   it('읽기 호출은 그대로 통과시키고 상태·본문을 함께 답한다', async () => {
-    const { call, fetchImpl } = subject(json({ provider: 'local' }));
+    const { call, fetchImpl } = subject(json({ provider: 'bridge' }));
     const result = await call({ method: 'GET', path: '/api/core/capabilities' });
-    expect(result).toMatchObject({ ok: true, status: 200, data: { provider: 'local' } });
+    expect(result).toMatchObject({ ok: true, status: 200, data: { provider: 'bridge' } });
     expect(fetchImpl.mock.calls[0]![0]).toBe('http://127.0.0.1:13030/api/core/capabilities');
   });
 
@@ -82,7 +82,7 @@ describe('settingmanager_call 도구', () => {
   });
 
   it('confirm:true 면 실행한다', async () => {
-    const { call, fetchImpl } = subject(json({ provider: 'local', settled: true }));
+    const { call, fetchImpl } = subject(json({ provider: 'bridge', settled: true }));
     const result = await call({ method: 'POST', path: '/api/core/center', body: { x: 10, y: 20 }, confirm: true });
     expect(result.ok).toBe(true);
     expect(JSON.parse(String((fetchImpl.mock.calls[0]![1] as RequestInit).body))).toEqual({ x: 10, y: 20 });

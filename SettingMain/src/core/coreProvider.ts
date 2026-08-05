@@ -13,8 +13,26 @@ import type { PtzView } from '../domain/ptz.js';
  * 계약의 정본은 이 타입이 아니라 `test/coreProviderConformance.ts` 의 적합성 스위트다.
  */
 
-export type CoreProviderName = 'remote' | 'local';
+/**
+ * 구성도(`docs/my_think/my_setting_manager_구성.md`)의 두 갈래에 1:1 대응한다.
+ *   `remote` = **Backend-Core** (baro_calory 경유)
+ *   `bridge` = **Bridge Backend-Core** (SettingManager 자체 구현 — 저쪽에 없는 것은 여기서 새로 만든다)
+ * 옛 설정값 `"local"` 은 `bridge` 의 이전 이름이다 — `normalizeCore` 가 접어서 읽는다.
+ */
+export type CoreProviderName = 'remote' | 'bridge';
 
+/**
+ * 코어가 할 수 있는 일의 이름표. 구성도(`docs/my_think/my_setting_manager_구성.md`)의
+ * Backend-Core·Bridge 하위 항목 5종이 여기 다 들어와 있다.
+ *
+ * 뒤의 둘(`vehicleBox`·`slotCreate`)은 **아직 실행 표면(포트)이 없다.** 요청·응답 모양이
+ * 확정되지 않았기 때문이며, 지어낸 시그니처를 먼저 만들면 실측과 어긋났을 때 소비자까지
+ * 전부 다시 깎아야 한다. 이름만 먼저 세워 두면 `GET /api/core/capabilities` 가
+ * "그 둘은 아직 아무도 못 한다"를 **사유와 함께** 답할 수 있다 — 화면은 없는 기능을
+ * 있는 것처럼 그리지 않고, 조용한 실패도 생기지 않는다.
+ * 포트가 생기는 시점에 `test/coreProviderConformance.ts` 의 `INVOKE` 에 실행 프로브를 추가한다
+ * (빠뜨리면 같은 파일의 검사가 잡아낸다).
+ */
 export const CORE_CAPABILITY_NAMES = [
   'center',
   'centerBox',
@@ -22,6 +40,8 @@ export const CORE_CAPABILITY_NAMES = [
   'discoveryPoints',
   'calibration',
   'plateHoming',
+  'vehicleBox',
+  'slotCreate',
 ] as const;
 
 export type CoreCapabilityName = (typeof CORE_CAPABILITY_NAMES)[number];
@@ -130,7 +150,7 @@ export interface DiscoveryPointPort {
 }
 
 /**
- * 카메라 코어. `RemoteCoreProvider`(backend-core 경유)와 `LocalCoreProvider`(자체 구현)가
+ * 카메라 코어. `RemoteCoreProvider`(backend-core 경유)와 `BridgeCoreProvider`(자체 구현)가
  * 이 표면을 **똑같이** 채운다. 라우트는 이것만 호출하고 구현 이름으로 분기하지 않는다.
  */
 export interface CoreProvider {

@@ -6,7 +6,7 @@ import { asId, requireCenterCoordinate, type RouteHandler } from './routeContext
 /**
  * 카메라 코어 — **기능 하나에 경로 하나.**
  *
- * 어느 구현(local·remote)이 답하든 URL·요청·응답 모양이 같다. 화면은 구현 이름으로
+ * 어느 구현(bridge·remote)이 답하든 URL·요청·응답 모양이 같다. 화면은 구현 이름으로
  * 분기하지 않고 `GET /api/core/capabilities` 로 무엇을 할 수 있는지만 묻는다.
  *
  * 이 파일에는 `if (provider === …)` 가 없다 — 구현 분기는 `core/providerFactory.ts` 하나뿐이다.

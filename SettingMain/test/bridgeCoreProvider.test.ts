@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { LocalCoreProvider } from '../src/core/local/localCoreProvider.js';
-import { CameraLeaseRegistry } from '../src/core/local/cameraLease.js';
+import { BridgeCoreProvider } from '../src/core/bridge/bridgeCoreProvider.js';
+import { CameraLeaseRegistry } from '../src/core/bridge/cameraLease.js';
 import { CoreBusyError, CoreUnsupportedError, type CoreContext } from '../src/core/coreProvider.js';
 import type { CameraDriver } from '../src/devices/cameraDriver.js';
 import { runCoreProviderConformance } from './coreProviderConformance.js';
@@ -27,7 +27,7 @@ function driver(overrides: Partial<CameraDriver> = {}): CameraDriver {
 }
 
 function subject(overrides: Partial<CameraDriver> = {}, leases = new CameraLeaseRegistry()) {
-  const provider = new LocalCoreProvider({ leases, settleOptions: { sleep: async () => {} } });
+  const provider = new BridgeCoreProvider({ leases, settleOptions: { sleep: async () => {} } });
   const ctx = { camera: { id: 'cam-a' }, driver: driver(overrides) } as unknown as CoreContext;
   return { provider, ctx, leases };
 }
@@ -36,13 +36,13 @@ function subject(overrides: Partial<CameraDriver> = {}, leases = new CameraLease
 runCoreProviderConformance('LocalCore (센터링 가능)', () => subject());
 runCoreProviderConformance('LocalCore (센터링 불가 드라이버)', () => subject({ centerPoint: undefined }));
 
-describe('LocalCoreProvider 능력', () => {
+describe('BridgeCoreProvider 능력', () => {
   it('드라이버가 픽셀 센터링을 하면 center 만 지원한다 — 나머지는 사유와 함께 미지원', async () => {
     const { provider, ctx } = subject();
     const capabilities = await provider.capabilities(ctx);
-    expect(capabilities.provider).toBe('local');
+    expect(capabilities.provider).toBe('bridge');
     expect(capabilities.supported.center.ok).toBe(true);
-    for (const name of ['centerBox', 'discoveryPresets', 'discoveryPoints', 'calibration', 'plateHoming'] as const) {
+    for (const name of ['centerBox', 'discoveryPresets', 'discoveryPoints', 'calibration', 'plateHoming', 'vehicleBox', 'slotCreate'] as const) {
       expect(capabilities.supported[name].ok).toBe(false);
       expect(capabilities.supported[name].reason).toBeTruthy();
     }
@@ -60,7 +60,7 @@ describe('LocalCoreProvider 능력', () => {
   });
 });
 
-describe('LocalCoreProvider 센터링', () => {
+describe('BridgeCoreProvider 센터링', () => {
   it('드라이버 centerPoint 를 부르고 정착 후 좌표를 답한다', async () => {
     const centerPoint = vi.fn(async () => {});
     const { provider, ctx } = subject({ centerPoint });
@@ -87,7 +87,7 @@ describe('LocalCoreProvider 센터링', () => {
   it('다른 카메라는 서로 막지 않는다', async () => {
     const leases = new CameraLeaseRegistry();
     const a = subject({}, leases);
-    const b = new LocalCoreProvider({ leases, settleOptions: { sleep: async () => {} } });
+    const b = new BridgeCoreProvider({ leases, settleOptions: { sleep: async () => {} } });
     const ctxB = { camera: { id: 'cam-b' }, driver: driver() } as unknown as CoreContext;
     await expect(Promise.all([a.provider.center(a.ctx, { x: 1, y: 1 }), b.center(ctxB, { x: 1, y: 1 })])).resolves.toHaveLength(2);
   });
