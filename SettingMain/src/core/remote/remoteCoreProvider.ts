@@ -82,6 +82,11 @@ export class RemoteCoreProvider implements CoreProvider {
         discoveryPoints: { ok: true },
         calibration: gate(axisOk('calibration'), axisMissing('calibration')),
         plateHoming: gate(axisOk('plateHoming'), axisMissing('plateHoming')),
+        // 구성도는 이 둘을 Backend-Core 아래 두지만, baro_calory 의 대응 API 경로·응답을
+        // 아직 실측하지 못했다. 있을 것 같다는 이유로 ok:true 를 답하면 화면이 버튼을 켜고
+        // 눌린 뒤에야 404 가 난다 — 실측 전까지는 사유와 함께 미지원이 정직한 답이다.
+        vehicleBox: { ok: false, reason: 'backend-core 의 차량 3D 육면체 API 를 아직 확인하지 못했습니다' },
+        slotCreate: { ok: false, reason: 'backend-core 의 주차면 생성 API 를 아직 확인하지 못했습니다' },
       },
     };
   }

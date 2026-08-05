@@ -90,7 +90,7 @@ ffmpeg 가 없으면 서버는 정상 기동하지만 **RTSP 카메라의 영상
 
 | 파일 | 내용 | 누가 쓰나 |
 |---|---|---|
-| **`config.json`** | 서버 포트 · 시뮬레이터 URL · 스트리밍 옵션 · **카메라 기본정보** | 옵션 페이지가 갱신. **실 IP·계정이 들어가므로 커밋하지 않는다**(`.gitignore`) |
+| **`config.json`** | 서버 포트 · 시뮬레이터 URL · 스트리밍 옵션 · 코어 구현 · **검출기 주소** · **카메라 기본정보** | 옵션 페이지가 갱신. **실 IP·계정이 들어가므로 커밋하지 않는다**(`.gitignore`) |
 | `config.example.json` | 초기 예시 사본 | 사람이 참고 |
 | `presets.json` | 프리셋(이름 + PTZ) | 제어 페이지가 갱신 |
 | `slots.json` | 실카메라 주차면 목록 | 사람이 편집(읽기 전용) |
@@ -116,6 +116,38 @@ ffmpeg 가 없으면 서버는 정상 기동하지만 **RTSP 카메라의 영상
 | `controlUrl` | 제어 주소. `backend-core` 종류에서 비워 두면 전역 시뮬레이터 URL 을 쓴다 |
 | `streamUrl` | 영상 URL. `rtsp://`=ffmpeg 전사 · `http://`=MJPEG 중계 · 비움=스냅샷 폴링. 옛 이름 `rtspUrl` 도 읽는다 |
 
+### `config.json` 코어 구현
+
+```json
+"core": { "provider": "bridge", "perCamera": { "real-camera-1": "remote" } }
+```
+
+| 값 | 뜻 |
+|---|---|
+| `bridge` | **SettingManager 자체 구현**(구성도의 *Bridge Backend-Core*). 옛 이름 `"local"` 도 그대로 읽는다 |
+| `remote` | baro_calory **backend-core** 경유 |
+
+`perCamera` 는 기기별 재정의이며 전역 `provider` 를 이긴다. 어느 쪽을 골라도 **경로와 화면은 같고**,
+무엇을 할 수 있는지만 달라진다 — `GET /api/core/capabilities` 로 확인한다.
+
+### `config.json` 검출기(API 계층)
+
+```json
+"detectors": {
+  "vpd": { "baseUrl": "http://127.0.0.1:8001", "timeoutMs": 15000 },
+  "lpd": { "baseUrl": "http://127.0.0.1:8002", "timeoutMs": 15000 },
+  "lpr": { "baseUrl": "", "timeoutMs": 15000 }
+}
+```
+
+| 검출기 | 대상 서비스 | 상태 |
+|---|---|---|
+| `vpd` | `Sub/vpd_api` — 차량 검출 | 붙어 있음 |
+| `lpd` | `Sub/lpd_api` — 번호판 검출(회전 상자) | 붙어 있음 |
+| `lpr` | 번호판 인식 | **대응 서비스가 없다.** 주소를 채워도 501 |
+
+`baseUrl` 이 비면 "설정되지 않음"이고 호출은 **즉시 501** 이다 — 없는 주소로 타임아웃을 기다리지 않는다.
+
 ---
 
 ## 4. REST API
@@ -138,6 +170,9 @@ ffmpeg 가 없으면 서버는 정상 기동하지만 **RTSP 카메라의 영상
 | `PUT /api/presets/:id` | `{ name?, ptz? }` 수정 |
 | `DELETE /api/presets/:id` | 삭제 |
 | `POST /api/presets/:id/goto` | 프리셋으로 이동 |
+| `GET /api/core/capabilities` | 현재 코어가 할 수 있는 것. 못 하는 능력은 **사유와 함께** `ok:false` |
+| `GET /api/detectors` | 검출기 3종의 사용 가능 여부 + 못 쓰는 사유 |
+| `POST /api/detectors/:name/detect` | 대상 카메라 스냅샷 1장을 VPD·LPD·LPR 로 보낸다. **이미지를 올리지 않는다** — 서버가 찍는다 |
 | `GET /api/slots` | 주차면 목록 + `source`(`simulator`·`local`) |
 | `GET /api/snapshot` | JPEG 1장 |
 | `GET /api/stream` | multipart MJPEG 연속 영상 |
@@ -210,3 +245,4 @@ npm run build       # dist/ 로 컴파일
 | `20260731_162952_SettingManager_구현_및_웹클라이언트.md` | 1차 구현 결과 · 클래스 설명 · 검증 결과 · 영향도 분석 |
 | `20260731_195049_시뮬레이터_연동_및_결함수정.md` | 기기 관리 확장 · UE 시뮬 연동 · 결함 4건 재현/수정 · 실측 기록 |
 | `20260731_200035_카메라_사용_개념도_및_순서도.md` | **카메라가 어떻게 쓰이는가** — 개념도 · 흐름도 8종 · 규칙 요약 |
+| `20260805_185800_구조정렬_my_setting_manager_구성반영.md` | 구성도 대조 · `bridge` 리네임 · 코어 능력 8종 · API 계층(VPD/LPD/LPR) · 영향도 |

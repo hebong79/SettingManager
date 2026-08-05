@@ -2,6 +2,7 @@ import type { AppConfig, CameraConfig } from '../config/types.js';
 import { BackendCoreClient } from './backendCore/backendCoreClient.js';
 import { CameraDriverError, type CameraDriver } from './cameraDriver.js';
 import { HucomsClient } from './hucoms/hucomsClient.js';
+import { Park3DRpcClient } from './park3d/park3dRpcClient.js';
 
 /**
  * 설정의 카메라 1건을 드라이버로 조립하는 **유일한 지점**.
@@ -23,6 +24,15 @@ export function createDriver(camera: CameraConfig, config: AppConfig, fetchImpl?
       return new BackendCoreClient({
         cameraId: camera.id,
         baseUrl: camera.controlUrl || config.simulator.baseUrl,
+        timeoutMs: camera.timeoutMs,
+        fetchImpl,
+      });
+    case 'park3d-rpc':
+      // 언리얼 Park3D JSON-RPC. controlUrl 에 경로 접미사를 붙이지 않는다(`/rpc` 는 드라이버가 붙인다).
+      return new Park3DRpcClient({
+        cameraId: camera.id,
+        baseUrl: camera.controlUrl,
+        camId: camera.camId,
         timeoutMs: camera.timeoutMs,
         fetchImpl,
       });

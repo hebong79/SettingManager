@@ -1,11 +1,13 @@
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { CameraDriverError } from '../devices/cameraDriver.js';
 import { CoreBusyError, CoreUnsupportedError } from '../core/coreProvider.js';
+import { DetectorError, DetectorUnsupportedError } from '../detectors/detectorTypes.js';
 import { ConfigError } from '../config/normalize.js';
 import { PresetError } from '../domain/preset.js';
 import { HttpError, sendError } from './httpUtil.js';
 import { CameraLeaseRegistry } from '../core/providerFactory.js';
 import { createCoreRoutes } from './routes/coreRoutes.js';
+import { detectorRoutes } from './routes/detectorRoutes.js';
 import { devicePresetRoutes } from './routes/devicePresetRoutes.js';
 import { healthRoutes } from './routes/healthRoutes.js';
 import { mediaRoutes } from './routes/mediaRoutes.js';
@@ -31,6 +33,7 @@ export function createServer(deps: ServerDeps): Server {
     healthRoutes,
     coreRoutes,
     settingsRoutes,
+    detectorRoutes,
     devicePresetRoutes,
     ptzRoutes,
     presetRoutes,
@@ -68,6 +71,8 @@ function fail(res: ServerResponse, error: unknown): void {
   if (error instanceof PresetError) return sendError(res, error.statusCode, error.message);
   if (error instanceof CoreUnsupportedError) return sendError(res, error.statusCode, error.message);
   if (error instanceof CoreBusyError) return sendError(res, error.statusCode, error.message);
+  if (error instanceof DetectorUnsupportedError) return sendError(res, error.statusCode, error.message);
+  if (error instanceof DetectorError) return sendError(res, error.statusCode, error.message);
   if (error instanceof CameraDriverError) return sendError(res, error.statusCode, error.message);
   if (error instanceof ConfigError) return sendError(res, error.statusCode, error.message);
   sendError(res, 500, error instanceof Error ? error.message : String(error));

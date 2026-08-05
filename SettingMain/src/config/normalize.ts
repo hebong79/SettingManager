@@ -1,8 +1,20 @@
-import type { AppConfig, CameraConfig, CameraKind, CameraPatch, CoreConfig, CoreProviderChoice, PublicCamera, SettingsPatch, StreamingConfig } from './types.js';
+import type {
+  AppConfig,
+  CameraConfig,
+  CameraKind,
+  CameraPatch,
+  CoreConfig,
+  CoreProviderChoice,
+  DetectorEndpointConfig,
+  DetectorsConfig,
+  PublicCamera,
+  SettingsPatch,
+  StreamingConfig,
+} from './types.js';
 
 /** 파일 I/O 없는 순수 정규화·병합 계층. 파서와 저장 로직이 같은 규칙을 쓰도록 여기 한 곳에 둔다. */
 
-const CAMERA_KINDS: readonly CameraKind[] = ['hucoms', 'backend-core'];
+const CAMERA_KINDS: readonly CameraKind[] = ['hucoms', 'backend-core', 'park3d-rpc'];
 
 const DEFAULT_STREAMING: StreamingConfig = {
   ffmpegPath: 'ffmpeg',
@@ -22,6 +34,15 @@ function int(value: unknown, fallback: number, low: number, high: number): numbe
   return Math.min(high, Math.max(low, Math.round(n)));
 }
 
+/**
+ * park3d-rpc 의 camId 전용. 클램프하는 `int()` 와 달리 **유효하지 않으면 값을 만들지 않는다** —
+ * 잘못 적은 값을 1 로 보정하면 엉뚱한 카메라를 조작하게 되고, 그 사고는 화면에 아무 흔적도 남기지 않는다.
+ */
+function positiveInt(value: unknown): number | undefined {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isInteger(n) && n >= 1 ? n : undefined;
+}
+
 export class ConfigError extends Error {
   constructor(message: string, readonly statusCode = 400, options?: { cause?: unknown }) {
     super(message, options);
@@ -35,6 +56,7 @@ export function normalizeCamera(raw: unknown): CameraConfig | null {
   const id = str(r.id);
   if (!id) return null;
   const kind = CAMERA_KINDS.includes(r.kind as CameraKind) ? (r.kind as CameraKind) : 'hucoms';
+  const camId = positiveInt(r.camId);
   return {
     id,
     label: str(r.label) || id,
@@ -45,6 +67,8 @@ export function normalizeCamera(raw: unknown): CameraConfig | null {
     // `rtspUrl` 은 옛 이름이다 — 기존 설정 파일이 그대로 열리도록 별칭으로 받는다.
     streamUrl: str(r.streamUrl) || str(r.rtspUrl),
     timeoutMs: int(r.timeoutMs, 5000, 500, 60_000),
+    // park3d-rpc 가 아닌 카메라에는 키 자체가 생기지 않는다(공개 응답의 키 집합을 넓히지 않는다).
+    ...(camId !== undefined ? { camId } : {}),
   };
 }
 
@@ -82,20 +106,50 @@ export function normalizeConfig(raw: unknown): AppConfig {
       startupTimeoutMs: int(streaming.startupTimeoutMs, DEFAULT_STREAMING.startupTimeoutMs, 1000, 60_000),
     },
     core,
+    detectors: normalizeDetectors(r.detectors),
     activeCameraId,
     cameras,
   };
 }
 
-/** 코어 구현 선택. 기본값은 **local** — 자체 구현이 정본이고 원격은 갈아 끼우는 쪽이다. */
+/**
+ * 검출 서비스 접속 정보. **없으면 빈 baseUrl** 이고, 그 상태가 곧 "설정되지 않았다"다.
+ * 기본 URL 을 지어 넣지 않는 이유: 아무 데도 없는 주소로 15초를 기다린 뒤 나는 타임아웃보다,
+ * "설정되지 않았습니다" 라는 즉답이 훨씬 빨리 원인을 알려 준다.
+ */
+export function normalizeDetectors(raw: unknown): DetectorsConfig {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const one = (value: unknown): DetectorEndpointConfig => {
+    const v = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+    // 추론은 초 단위로 걸린다 — 카메라 제어(5초)보다 넉넉한 기본값을 쓴다.
+    return { baseUrl: stripTrailingSlash(str(v.baseUrl)), timeoutMs: int(v.timeoutMs, 15_000, 500, 120_000) };
+  };
+  return { vpd: one(r.vpd), lpd: one(r.lpd), lpr: one(r.lpr) };
+}
+
+/**
+ * 코어 구현 선택. 기본값은 **bridge** — 자체 구현이 정본이고 원격은 갈아 끼우는 쪽이다.
+ *
+ * `"local"` 은 `bridge` 의 **옛 이름**이다. 이미 저장된 `config.json` 이 그 값을 들고 있으므로
+ * 여기서 접어 읽는다 — 접지 않으면 옛 설정이 조용히 기본값으로 떨어져, 기기별 재정의를
+ * 걸어 둔 사용자가 이유 없이 다른 구현으로 도는 것을 눈치채지 못한다.
+ */
 export function normalizeCore(raw: unknown): CoreConfig {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const perCamera: Record<string, CoreProviderChoice> = {};
   const entries = (r.perCamera && typeof r.perCamera === 'object' ? r.perCamera : {}) as Record<string, unknown>;
   for (const [cameraId, choice] of Object.entries(entries)) {
-    if (choice === 'local' || choice === 'remote') perCamera[cameraId] = choice;
+    const folded = coreChoice(choice);
+    if (folded) perCamera[cameraId] = folded;
   }
-  return { provider: r.provider === 'remote' ? 'remote' : 'local', perCamera };
+  return { provider: r.provider === 'remote' ? 'remote' : 'bridge', perCamera };
+}
+
+/** 알아듣는 값만 돌려준다. 오타를 조용히 기본값으로 바꾸지 않는다(호출자가 무시하도록 undefined). */
+function coreChoice(value: unknown): CoreProviderChoice | undefined {
+  if (value === 'remote') return 'remote';
+  if (value === 'bridge' || value === 'local') return 'bridge';
+  return undefined;
 }
 
 /** 이 카메라를 어느 구현으로 돌릴 것인가. 기기별 재정의가 전역을 이긴다. */

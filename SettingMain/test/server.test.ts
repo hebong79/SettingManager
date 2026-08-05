@@ -525,15 +525,15 @@ describe('코어 구현 전환', () => {
   /** 설정으로 코어를 바꾼다 — 질의 파라미터가 아니다. */
   const useRemote = () => api('/api/settings', { method: 'PUT', body: JSON.stringify({ core: { provider: 'remote' } }) });
 
-  it('기본값은 자체 코어다', async () => {
+  it('기본값은 브리지 코어다', async () => {
     const { body } = await api('/api/core/capabilities');
-    expect(body.provider).toBe('local');
+    expect(body.provider).toBe('bridge');
   });
 
-  it('자체 코어는 탐색을 501 로 거절한다 — 조용히 backend-core 로 넘기지 않는다', async () => {
+  it('브리지 코어는 탐색을 501 로 거절한다 — 조용히 backend-core 로 넘기지 않는다', async () => {
     const { status, body } = await api('/api/core/discovery/presets');
     expect(status).toBe(501);
-    expect(body.error).toMatch(/자체 코어/);
+    expect(body.error).toMatch(/브리지 코어/);
     expect(requestedUrls.some((url) => url.includes('/api/discovery/presets'))).toBe(false);
   });
 
@@ -549,11 +549,11 @@ describe('코어 구현 전환', () => {
     await useRemote();
     const { body } = await api('/api/core/capabilities');
     expect(body.provider).toBe('remote');
-    expect(Object.keys(body.supported).sort()).toEqual(['calibration', 'center', 'centerBox', 'discoveryPoints', 'discoveryPresets', 'plateHoming']);
+    expect(Object.keys(body.supported).sort()).toEqual(['calibration', 'center', 'centerBox', 'discoveryPoints', 'discoveryPresets', 'plateHoming', 'slotCreate', 'vehicleBox']);
   });
 
   it('center-box 는 어느 구현에서도 501 이다 — discovery point 에 box 정본이 없다', async () => {
-    for (const provider of ['local', 'remote']) {
+    for (const provider of ['bridge', 'remote']) {
       await api('/api/settings', { method: 'PUT', body: JSON.stringify({ core: { provider } }) });
       const response = await api('/api/core/center-box', { method: 'POST', body: JSON.stringify({ startX: 1, startY: 2, endX: 3, endY: 4 }) });
       expect(response.status).toBe(501);
@@ -568,9 +568,9 @@ describe('코어 구현 전환', () => {
   });
 
   it('기기별 재정의가 전역 설정을 이긴다', async () => {
-    await api('/api/settings', { method: 'PUT', body: JSON.stringify({ core: { provider: 'local', perCamera: { 'cam-a': 'remote' } } }) });
+    await api('/api/settings', { method: 'PUT', body: JSON.stringify({ core: { provider: 'bridge', perCamera: { 'cam-a': 'remote' } } }) });
     expect((await api('/api/core/capabilities?cameraId=cam-a')).body.provider).toBe('remote');
-    expect((await api('/api/core/capabilities?cameraId=sim-1')).body.provider).toBe('local');
+    expect((await api('/api/core/capabilities?cameraId=sim-1')).body.provider).toBe('bridge');
   });
 
   it('옛 경로는 사라졌다', async () => {
@@ -808,20 +808,20 @@ describe('영상·정적 파일', () => {
     expect((await api('/api/nope')).status).toBe(404);
   });
 
-  it('자체 코어 center 는 선택 cameraId 의 직접 Hucoms 경로만 쓴다', async () => {
+  it('브리지 코어 center 는 선택 cameraId 의 직접 Hucoms 경로만 쓴다', async () => {
     const capability = await api('/api/core/capabilities?cameraId=cam-a');
-    expect(capability.body).toMatchObject({ cameraId: 'cam-a', provider: 'local', busy: false });
+    expect(capability.body).toMatchObject({ cameraId: 'cam-a', provider: 'bridge', busy: false });
     expect(capability.body.supported.center.ok).toBe(true);
 
     requestedUrls = [];
     const centered = await api('/api/core/center', { method: 'POST', body: JSON.stringify({ cameraId: 'cam-a', x: 960, y: 540 }) });
     expect(centered.status).toBe(200);
-    expect(centered.body).toMatchObject({ provider: 'local', cameraId: 'cam-a', settled: true });
+    expect(centered.body).toMatchObject({ provider: 'bridge', cameraId: 'cam-a', settled: true });
     expect(requestedUrls.some((url) => url.includes('ptz_centering.cgi'))).toBe(true);
     expect(requestedUrls.some((url) => url.includes('127.0.0.1:8080'))).toBe(false);
   });
 
-  it('자체 코어 center 는 논리 프레임 밖 좌표를 400 으로 거부한다', async () => {
+  it('브리지 코어 center 는 논리 프레임 밖 좌표를 400 으로 거부한다', async () => {
     const response = await api('/api/core/center', { method: 'POST', body: JSON.stringify({ cameraId: 'cam-a', x: 1921, y: 540 }) });
     expect(response.status).toBe(400);
     expect(response.body.error).toContain('x 는 0..1920 정수여야 합니다');

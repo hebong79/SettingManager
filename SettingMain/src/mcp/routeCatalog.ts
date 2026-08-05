@@ -32,7 +32,7 @@ export const ROUTE_CATALOG: readonly RouteCatalogEntry[] = [
   { method: 'GET', path: '/api/settings', title: '설정 조회 (비밀번호 제외)', mutating: false, movesCamera: false },
   {
     method: 'PUT', path: '/api/settings', title: '설정 저장', mutating: true, movesCamera: false,
-    notes: 'core.provider 로 코어 구현(local·remote)을 바꾼다. 비밀번호는 빈 값이면 기존 유지.',
+    notes: 'core.provider 로 코어 구현(bridge·remote)을 바꾼다. 비밀번호는 빈 값이면 기존 유지.',
   },
   { method: 'GET', path: '/api/cameras', title: '카메라 목록', mutating: false, movesCamera: false },
   { method: 'POST', path: '/api/cameras', title: '기기 추가', mutating: true, movesCamera: false, notes: '{ id, kind?, controlUrl?, streamUrl?, ... }' },
@@ -95,6 +95,16 @@ export const ROUTE_CATALOG: readonly RouteCatalogEntry[] = [
   { method: 'GET', path: '/api/cameras/:id/device-presets', title: '장비 프리셋 목록', mutating: false, movesCamera: false },
   { method: 'POST', path: '/api/cameras/:id/device-presets/:number/go', title: '장비 프리셋 이동', mutating: false, movesCamera: true, notes: '{ mode: preset|coordinate }' },
   { method: 'POST', path: '/api/cameras/:id/device-presets/:number/sync-coordinate', title: '장비 프리셋 좌표 학습', mutating: true, movesCamera: true, notes: '본문은 빈 객체.' },
+
+  // --- API 계층 (VPD·LPD·LPR) -----------------------------------------------
+  {
+    method: 'GET', path: '/api/detectors', title: '검출기 설정 상태', mutating: false, movesCamera: false,
+    notes: 'configured=주소가 채워졌는가 · implemented=이 저장소에 구현이 있는가. LPR 은 implemented:false 다.',
+  },
+  {
+    method: 'POST', path: '/api/detectors/:name/detect', title: '스냅샷 1장을 검출기로', mutating: false, movesCamera: false,
+    notes: '이미지를 보내지 않는다 — 대상 카메라의 스냅샷을 서버가 찍어 보낸다. 미설정·미구현은 501.',
+  },
 
   // --- 주차면·영상 ---------------------------------------------------------
   { method: 'GET', path: '/api/slots', title: '주차면 목록', mutating: false, movesCamera: false, notes: 'source 가 simulator 인지 local 인지 함께 온다.' },
