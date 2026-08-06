@@ -30,6 +30,7 @@ export function toCameraConfig(row: CameraRow): CameraConfig {
     place_id: row.place_id,
     // 값이 없는 기기에는 **키 자체를 만들지 않는다** — 공개 응답의 키 집합을 넓히지 않기 위해서다.
     ...(row.park3d_cam_id ? { camId: row.park3d_cam_id } : {}),
+    ...(row.kind === 'idis' && row.insecure_tls ? { insecureTls: true } : {}),
     ...(parseIntrinsics(row.intrinsics) ?? {}),
   };
 }
@@ -48,6 +49,7 @@ export function toCameraRow(camera: CameraConfig, defaults: { cam_type?: 'ptz' |
     timeout_ms: camera.timeoutMs,
     kind: camera.kind,
     park3d_cam_id: camera.camId ?? null,
+    insecure_tls: camera.insecureTls ? 1 : 0,
     intrinsics: camera.intrinsics ? JSON.stringify(camera.intrinsics) : null,
   };
 }

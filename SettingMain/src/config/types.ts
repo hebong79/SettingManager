@@ -9,8 +9,13 @@
  * - `park3d-rpc`  : 언리얼 Park3D JSON-RPC 서버(`POST /rpc` — `cam.getPTZ`·`cam.setPTZ`).
  *                   **Hucoms CGI 가 아니다** — 같은 시뮬레이터라도 프로토콜이 다르고,
  *                   `/cgi-bin/...` 을 두드리면 404(`route_handler_not_found`)가 난다.
+ * - `idis`        : IDIS WebAPI v2.20. 단일 CGI(`/cgi-bin/webSetup.cgi`)에 `action=` 으로 분기하고
+ *                   인증은 Digest 다. **같은 벤더라도 모델·펌웨어마다 있는 액션이 다르므로**
+ *                   드라이버가 능력을 지어내지 않고 기기에 물어 좁힌다(`src/devices/idis/README.md`).
+ *                   좌표는 이 서비스의 계약(Hucoms 논리)과 **부호도 원점도 다르고**, 줌은
+ *                   불투명 raw 가 아니라 배율×100 이다 — 변환은 드라이버 안에 갇혀 있다.
  */
-export type CameraKind = 'hucoms' | 'backend-core' | 'park3d-rpc';
+export type CameraKind = 'hucoms' | 'backend-core' | 'park3d-rpc' | 'idis';
 
 export interface CameraConfig {
   id: string;
@@ -30,6 +35,14 @@ export interface CameraConfig {
   timeoutMs: number;
   /** park3d-rpc 전용. 서버가 요구하는 카메라 번호로 **1-based** 다. 없으면 드라이버가 400 으로 거절한다. */
   camId?: number;
+  /**
+   * idis 전용. 이 기기 **하나에** 한해 TLS 인증서 검증을 끈다.
+   *
+   * 공장 자체서명 인증서를 쓰는 모델이 있고, 그 경우 검증을 켜면 전 요청이 연결 단계에서 죽는다.
+   * 프로세스 전역 `NODE_TLS_REJECT_UNAUTHORIZED` 는 이 서비스 전체(검출기·코어 포함)의 검증을
+   * 끄므로 답이 아니다. 기본은 검증(안전한 쪽)이며, 켠 기기에만 키가 생긴다.
+   */
+  insecureTls?: boolean;
   /**
    * 이 카메라가 선 **장소(주차장)**. 커미셔닝 DB 의 `place_info.place_id` 와 같은 값이다.
    *

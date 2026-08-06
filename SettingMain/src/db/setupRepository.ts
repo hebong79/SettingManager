@@ -28,17 +28,19 @@ export interface CameraRow {
   place_id: number;
   timeout_ms: number;
   /** 프로토콜. v4 에서 제조사를 여기로 합쳤다 — 열은 이것 하나다. 드라이버를 고르는 값이다. */
-  kind: 'hucoms' | 'backend-core' | 'park3d-rpc';
+  kind: 'hucoms' | 'backend-core' | 'park3d-rpc' | 'idis';
   /** park3d-rpc 전용 1-based 번호. `cam_id`(우리 통번)와 다른 값이다. */
   park3d_cam_id: number | null;
+  /** idis 전용. 1 이면 이 기기 **하나에** 한해 TLS 인증서 검증을 끈다(v5). SQLite 에 boolean 이 없어 0/1 이다. */
+  insecure_tls: number;
   /** `{"zoomHfov":[{"z","h"}, …]}` JSON. 없으면 브리지 박스줌이 꺼진다. */
   intrinsics: string | null;
 }
 
-/** 넣을 때의 입력. v2 필드 넷은 생략하면 기존 값을 지킨다. */
+/** 넣을 때의 입력. v2 필드 넷과 v5 의 `insecure_tls` 는 생략하면 기존 값을 지킨다. */
 export type CameraInput =
-  Omit<CameraRow, 'cam_id' | 'timeout_ms' | 'kind' | 'park3d_cam_id' | 'intrinsics'>
-  & Partial<Pick<CameraRow, 'cam_id' | 'timeout_ms' | 'kind' | 'park3d_cam_id' | 'intrinsics'>>;
+  Omit<CameraRow, 'cam_id' | 'timeout_ms' | 'kind' | 'park3d_cam_id' | 'insecure_tls' | 'intrinsics'>
+  & Partial<Pick<CameraRow, 'cam_id' | 'timeout_ms' | 'kind' | 'park3d_cam_id' | 'insecure_tls' | 'intrinsics'>>;
 
 export interface PresetRow {
   id: number;
@@ -164,6 +166,8 @@ export class SetupRepository {
         timeout_ms: input.timeout_ms ?? existing?.timeout_ms ?? 5000,
         kind: input.kind ?? existing?.kind ?? 'hucoms',
         park3d_cam_id: input.park3d_cam_id === undefined ? (existing?.park3d_cam_id ?? null) : input.park3d_cam_id,
+        // 옛 파일에는 CHECK 가 없으므로(ADD COLUMN 의 한계) 여기서 0/1 로 좁혀 넣는다.
+        insecure_tls: (input.insecure_tls ?? existing?.insecure_tls) ? 1 : 0,
         intrinsics: input.intrinsics === undefined ? (existing?.intrinsics ?? null) : input.intrinsics,
       };
       // 장소가 없으면 만들어 둔다 — 외래키가 걸려 있어 없는 장소를 가리키면 카메라가 아예 안 들어간다.
@@ -171,18 +175,19 @@ export class SetupRepository {
         .run(filled.place_id, `장소 ${filled.place_id}`);
       this.db.prepare(`
         INSERT INTO camera_info (cam_id, cam_name, cam_uuid, url, user_id, password, rtsp_url, cam_type, place_id,
-                                 timeout_ms, kind, park3d_cam_id, intrinsics)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 timeout_ms, kind, park3d_cam_id, insecure_tls, intrinsics)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(cam_id) DO UPDATE SET
           cam_name = excluded.cam_name, cam_uuid = excluded.cam_uuid, url = excluded.url,
           user_id = excluded.user_id, password = excluded.password, rtsp_url = excluded.rtsp_url,
           cam_type = excluded.cam_type, place_id = excluded.place_id,
           timeout_ms = excluded.timeout_ms, kind = excluded.kind,
-          park3d_cam_id = excluded.park3d_cam_id, intrinsics = excluded.intrinsics
+          park3d_cam_id = excluded.park3d_cam_id, insecure_tls = excluded.insecure_tls,
+          intrinsics = excluded.intrinsics
       `).run(
         camId, filled.cam_name, filled.cam_uuid, filled.url, filled.user_id, filled.password,
         filled.rtsp_url, filled.cam_type, filled.place_id,
-        filled.timeout_ms, filled.kind, filled.park3d_cam_id, filled.intrinsics,
+        filled.timeout_ms, filled.kind, filled.park3d_cam_id, filled.insecure_tls, filled.intrinsics,
       );
       return filled;
     });

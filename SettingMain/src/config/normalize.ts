@@ -16,7 +16,7 @@ import type {
 
 /** 파일 I/O 없는 순수 정규화·병합 계층. 파서와 저장 로직이 같은 규칙을 쓰도록 여기 한 곳에 둔다. */
 
-const CAMERA_KINDS: readonly CameraKind[] = ['hucoms', 'backend-core', 'park3d-rpc'];
+const CAMERA_KINDS: readonly CameraKind[] = ['hucoms', 'backend-core', 'park3d-rpc', 'idis'];
 
 const DEFAULT_STREAMING: StreamingConfig = {
   ffmpegPath: 'ffmpeg',
@@ -74,6 +74,9 @@ export function normalizeCamera(raw: unknown): CameraConfig | null {
     timeoutMs: int(r.timeoutMs, 5000, 500, 60_000),
     // park3d-rpc 가 아닌 카메라에는 키 자체가 생기지 않는다(공개 응답의 키 집합을 넓히지 않는다).
     ...(camId !== undefined ? { camId } : {}),
+    // 같은 규칙 — **idis 가 아니면 키 자체를 만들지 않는다.** 다른 종류의 드라이버는 이 값을
+    // 보지 않으므로, 화면·API 응답에 뜻 없는 `insecureTls:false` 가 섞이지 않게 한다.
+    ...(kind === 'idis' && r.insecureTls === true ? { insecureTls: true } : {}),
     ...(intrinsics !== undefined ? { intrinsics } : {}),
     place_id: placeId,
   };

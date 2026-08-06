@@ -111,6 +111,7 @@
                 <option value="hucoms">hucoms</option>
                 <option value="backend-core">backend-core</option>
                 <option value="park3d-rpc">park3d-rpc</option>
+                <option value="idis">idis</option>
               </select>
             </div>
             <div class="field" style="flex:0 0 110px">
@@ -140,6 +141,12 @@
 
           <div class="row">
             <div class="field" style="flex:0 0 180px"><label for="camPlace">장소 (place_id)</label><select id="camPlace"></select></div>
+            <div class="field" style="flex:0 0 320px">
+              <label for="camInsecureTls">insecure_tls</label>
+              <label class="muted" style="font-weight:normal">
+                <input id="camInsecureTls" type="checkbox"> idis 전용 · 이 기기의 TLS 인증서 검증을 끕니다
+              </label>
+            </div>
           </div>
 
           <div class="row">
@@ -165,6 +172,7 @@
                 <option value="hucoms">hucoms</option>
                 <option value="backend-core">backend-core</option>
                 <option value="park3d-rpc">park3d-rpc</option>
+                <option value="idis">idis</option>
               </select>
             </div>
             <button id="camAdd" class="primary">+ 기기 추가</button>

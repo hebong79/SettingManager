@@ -232,11 +232,13 @@ function merged(current: CameraRow, patch: Record<string, unknown>): CameraRow {
     timeout_ms: patch.timeout_ms !== undefined ? clampTimeout(patch.timeout_ms) : current.timeout_ms,
     // 값을 **명시로 비우면** 지운다 — park3d 가 아닌 종류로 바꿀 때 필요하다.
     park3d_cam_id: patch.park3d_cam_id === undefined ? current.park3d_cam_id : positiveOrNull(patch.park3d_cam_id),
+    // idis 전용 TLS 검증 끄기. 화면은 체크박스라 `true`/`false` 로 오고, DB 는 0/1 이다.
+    insecure_tls: patch.insecure_tls === undefined ? current.insecure_tls : (patch.insecure_tls ? 1 : 0),
     intrinsics: patch.intrinsics === undefined ? current.intrinsics : intrinsicsJson(patch.intrinsics),
   };
 }
 
-const KINDS: ReadonlyArray<CameraRow['kind']> = ['hucoms', 'backend-core', 'park3d-rpc'];
+const KINDS: ReadonlyArray<CameraRow['kind']> = ['hucoms', 'backend-core', 'park3d-rpc', 'idis'];
 
 function clampTimeout(value: unknown): number {
   const n = Number(value);

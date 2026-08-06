@@ -371,13 +371,13 @@ describe('옛 파일 열기 — v2 열 보강 (계획 2단계)', () => {
     }
   });
 
-  it('[2-4] 새 파일은 처음부터 13열이고 cam_company 가 없다 — 판도 기록된다', () => {
+  it('[2-4] 새 파일은 처음부터 14열이고 cam_company 가 없다 — 판도 기록된다', () => {
     const opened = openDatabase({ path }); // 아직 아무것도 없는 경로
     try {
       // 개수만 보면 "다른 열 하나를 잃고 cam_company 는 남은" 파일과 구분되지 않는다.
       // **이름으로** 못박는다(계획 5-3 의 4-5).
       expect(columnsOf(opened, 'camera_info')).not.toContain('cam_company');
-      expect(columnsOf(opened, 'camera_info')).toHaveLength(13);
+      expect(columnsOf(opened, 'camera_info')).toHaveLength(14);
       expect(userVersionOf(opened)).toBe(SCHEMA_VERSION);
     } finally {
       opened.close();
@@ -479,19 +479,19 @@ const V3_CAMERAS: ReadonlyArray<CameraRow & { cam_company: string }> = [
     cam_id: 1, cam_name: '리얼 1', cam_uuid: 'real-camera-1', url: 'http://192.168.0.21:80',
     user_id: 'admin', password: 'pw1', rtsp_url: 'rtsp://192.168.0.21:554/stream1',
     cam_type: 'ptz', cam_company: '휴컴스', place_id: 1,
-    timeout_ms: 3000, kind: 'hucoms', park3d_cam_id: null, intrinsics: '{"zoomHfov":[{"z":0,"h":57.14}]}',
+    timeout_ms: 3000, kind: 'hucoms', park3d_cam_id: null, insecure_tls: 0, intrinsics: '{"zoomHfov":[{"z":0,"h":57.14}]}',
   },
   {
     cam_id: 3, cam_name: 'UE 시뮬 1 (8081)', cam_uuid: 'simulator-1', url: 'http://127.0.0.1:8081',
     user_id: 'sim', password: 'pw3', rtsp_url: 'rtsp://127.0.0.1:8554/sim1',
     cam_type: 'ptz', cam_company: '시뮬레이터', place_id: 1,
-    timeout_ms: 2500, kind: 'hucoms', park3d_cam_id: null, intrinsics: null,
+    timeout_ms: 2500, kind: 'hucoms', park3d_cam_id: null, insecure_tls: 0, intrinsics: null,
   },
   {
     cam_id: 5, cam_name: 'UE 시뮬 3', cam_uuid: 'simulator-3', url: 'http://127.0.0.1:13510',
     user_id: '', password: '', rtsp_url: '',
     cam_type: 'static', cam_company: '언리얼 Park3D 시뮬', place_id: 1,
-    timeout_ms: 4000, kind: 'park3d-rpc', park3d_cam_id: 2, intrinsics: null,
+    timeout_ms: 4000, kind: 'park3d-rpc', park3d_cam_id: 2, insecure_tls: 0, intrinsics: null,
   },
 ];
 
@@ -574,10 +574,10 @@ describe('cam_company 삭제 — 스키마 v4 (계획 5-3)', () => {
     const opened = openDatabase({ path });
     try {
       const columns = columnsOf(opened, 'camera_info');
-      // 개수가 아니라 **이름**으로 본다 — 13 이라는 숫자만으로는 "다른 열 하나를 잃고
+      // 개수가 아니라 **이름**으로 본다 — 14 라는 숫자만으로는 "다른 열 하나를 잃고
       // cam_company 는 남은" 파일과 구분되지 않는다.
       expect(columns).not.toContain('cam_company');
-      expect(columns).toHaveLength(13);
+      expect(columns).toHaveLength(14);
       expect(userVersionOf(opened)).toBe(SCHEMA_VERSION);
     } finally {
       opened.close();
@@ -620,7 +620,7 @@ describe('cam_company 삭제 — 스키마 v4 (계획 5-3)', () => {
     try {
       const columns = columnsOf(opened, 'camera_info');
       expect(columns).not.toContain('cam_company');
-      expect(columns).toHaveLength(13);
+      expect(columns).toHaveLength(14);
       // 보강이 함께 일어났는지 — 드롭만 돌고 ADD 가 건너뛰어졌다면 여기서 걸린다.
       for (const camera of readCameras(opened)) {
         expect(camera.kind).toBe('hucoms');
@@ -656,7 +656,7 @@ describe('cam_company 삭제 — 스키마 v4 (계획 5-3)', () => {
 // ---------------------------------------------------------------------------
 
 describe('경계면 교차 — camera_info 표 ↔ CameraRow ↔ upsertCamera INSERT', () => {
-  /** 13열 전부를 기본값이 **아닌** 값으로 채운 입력. 기본값이면 누락과 구분되지 않는다. */
+  /** 14열 전부를 기본값이 **아닌** 값으로 채운 입력. 기본값이면 누락과 구분되지 않는다. */
   const FULL_ROW: CameraRow = {
     cam_id: 7,
     cam_name: '왕복 시험',
@@ -670,6 +670,7 @@ describe('경계면 교차 — camera_info 표 ↔ CameraRow ↔ upsertCamera IN
     timeout_ms: 1234,
     kind: 'park3d-rpc',
     park3d_cam_id: 9,
+    insecure_tls: 1,
     intrinsics: '{"zoomHfov":[{"z":0,"h":57.14}]}',
   };
 
@@ -680,7 +681,7 @@ describe('경계면 교차 — camera_info 표 ↔ CameraRow ↔ upsertCamera IN
     expect(Object.keys(row).sort()).toEqual(columnsOf(db, 'camera_info').sort());
   });
 
-  it('13열 전부가 INSERT 를 왕복한다 — 열 목록에서 빠진 열은 조용히 기본값이 된다', () => {
+  it('14열 전부가 INSERT 를 왕복한다 — 열 목록에서 빠진 열은 조용히 기본값이 된다', () => {
     setup().upsertCamera(FULL_ROW);
     const stored = db.prepare('SELECT * FROM camera_info WHERE cam_id = ?').get(FULL_ROW.cam_id);
     expect(stored).toEqual(FULL_ROW);
