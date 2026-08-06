@@ -16,3 +16,6 @@ SettingMain/config/setup.db-wal
 SettingMain/config/setup.db-shm
 SettingMain/config/discovery-*.json
 SettingMain/config/spots-*.json
+
+# 위 두 파일의 백업본에도 같은 접속 정보(IP·계정·평문 비밀번호)가 그대로 들어간다.
+SettingMain/config/*.bak-*
