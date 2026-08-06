@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Server } from 'node:http';
+import type { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createServer } from '../src/api/server.js';
 import { openDatabase } from '../src/db/database.js';
@@ -20,6 +21,8 @@ import { DevicePresetRegistryStore } from '../src/store/devicePresetRegistryStor
 let dir: string;
 let server: Server;
 let base: string;
+/** 프리셋 정본이 표라서, 저장이 진짜 남았는지 보려면 테스트가 DB 를 직접 읽어야 한다. */
+let db: DatabaseSync;
 let cameraPtz = { panpos: 3844, tiltpos: 1188, zoompos: 10711 };
 /**
  * 이동 명령 뒤 몇 번은 **중간값**을 돌려줄지. UE 시뮬레이터가 PTZ 를 애니메이션으로 움직여
@@ -107,11 +110,11 @@ beforeEach(async () => {
 
   // 카메라의 정본은 DB 다. config.json 의 cameras[] 는 load() 가 1회 이관하고 파일에서 지운다 —
   // 그래서 하네스는 예전처럼 config 에 카메라를 적어 두면 되고, 이관 경로도 매번 검증된다.
-  const db = openDatabase({ path: ':memory:' });
+  db = openDatabase({ path: ':memory:' });
   const configStore = new ConfigStore(join(dir, 'config.json'), db);
   await configStore.load();
-  const presetStore = new PresetStore(join(dir, 'presets.json'), () => '2026-07-31T00:00:00.000Z');
-  await presetStore.load();
+  // 프리셋 정본은 preset_info 표다 — 파일이 아니라 같은 DB 를 본다.
+  const presetStore = new PresetStore(db);
   const slotStore = new SlotStore(join(dir, 'slots.json'));
   await slotStore.load();
   const devicePresetRegistryStore = new DevicePresetRegistryStore(join(dir, 'device-preset-registry.json'), () => '2026-08-02T00:00:00.000Z');
@@ -402,10 +405,18 @@ describe('프리셋 CRUD', () => {
     expect((await api('/api/presets/ghost/goto', { method: 'POST' })).status).toBe(404);
   });
 
-  it('프리셋은 파일로 남는다 — 재기동 후에도 살아 있어야 한다', async () => {
+  /**
+   * 전에는 `presets.json` 을 읽어 확인했다. 정본이 `preset_info` 표로 옮겨졌으므로(2026-08-06)
+   * **표를 직접 읽어** 확인한다 — 옵션 화면의 DB 탭이 보는 것과 같은 자리다.
+   * REST 로 저장하고 REST 로 읽으면 정본이 둘이어도 통과하므로, 반드시 반대편으로 읽는다.
+   */
+  it('프리셋은 preset_info 표에 남는다 — DB 탭과 같은 줄을 본다', async () => {
     await api('/api/presets', { method: 'POST', body: JSON.stringify({ name: '정문' }) });
-    const saved = JSON.parse(await readFile(join(dir, 'presets.json'), 'utf8'));
-    expect(saved.presets[0]).toMatchObject({ cameraId: 'cam-a', name: '정문' });
+    const rows = db.prepare(`
+      SELECT p.preset_name, p.preset_id, c.cam_uuid FROM preset_info p
+      JOIN camera_info c ON c.cam_id = p.cam_id
+    `).all() as unknown as Array<{ preset_name: string; preset_id: number; cam_uuid: string }>;
+    expect(rows).toEqual([{ preset_name: '정문', preset_id: 1, cam_uuid: 'cam-a' }]);
   });
 });
 
