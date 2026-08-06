@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SettingManager · DB 테이블</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>SettingManager</h1>
+    <nav>
+      <a href="/">카메라 제어</a>
+      <a href="/options">옵션</a>
+      <a href="/dbtable" class="active">DB 테이블</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>테이블<span class="tag" id="tableTag">-</span></h2>
+      <div class="body">
+        <div class="row">
+          <div class="field">
+            <label for="tableSelect">테이블</label>
+            <select id="tableSelect"></select>
+          </div>
+          <div class="field" style="flex:1">
+            <label for="searchText">텍스트 검색</label>
+            <input id="searchText" placeholder="모든 열을 훑습니다 (부분 일치)">
+          </div>
+          <div class="field">
+            <label for="searchColumn">검색할 열</label>
+            <select id="searchColumn"><option value="">전체</option></select>
+          </div>
+        </div>
+
+        <div class="row" id="periodRow">
+          <div class="field">
+            <label for="fromDate">기간 시작<span id="timeColumnHint" class="muted"></span></label>
+            <input id="fromDate" type="date">
+          </div>
+          <div class="field">
+            <label for="toDate">기간 끝</label>
+            <input id="toDate" type="date">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="condColumn">조건 — 열</label>
+            <select id="condColumn"><option value="">(없음)</option></select>
+          </div>
+          <div class="field">
+            <label for="condOp">비교</label>
+            <select id="condOp">
+              <option value="=">=</option>
+              <option value="!=">!=</option>
+              <option value="&lt;">&lt;</option>
+              <option value="&lt;=">&lt;=</option>
+              <option value="&gt;">&gt;</option>
+              <option value="&gt;=">&gt;=</option>
+              <option value="LIKE">LIKE</option>
+              <option value="IS NULL">비어 있음</option>
+              <option value="IS NOT NULL">비어 있지 않음</option>
+            </select>
+          </div>
+          <div class="field" style="flex:1">
+            <label for="condValue">값</label>
+            <input id="condValue" placeholder="비교 대상 값">
+          </div>
+          <div class="field">
+            <label for="pageSize">한 번에</label>
+            <select id="pageSize">
+              <option>50</option><option selected>200</option><option>500</option><option>2000</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row">
+          <button id="search" class="primary">검색</button>
+          <button id="reset">조건 지우기</button>
+          <button id="prev">◀ 이전</button>
+          <button id="next">다음 ▶</button>
+          <span id="pageInfo" class="muted"></span>
+        </div>
+
+        <p class="hint" id="viewerHint">
+          이 화면은 <b>읽기 전용</b>입니다 — 고치는 것은 옵션 화면의 DB 탭(장소·카메라·프리셋)에서 합니다.
+          슬롯·주차 상태는 커미셔닝이 만든 산출물이라 손으로 고치지 않습니다.
+        </p>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>결과<span class="tag" id="resultTag">-</span></h2>
+      <div class="body">
+        <div class="table-scroll">
+          <table class="grid" id="resultTable"><thead><tr></tr></thead><tbody></tbody></table>
+        </div>
+        <p class="empty" id="emptyNote" hidden>조건에 맞는 줄이 없습니다.</p>
+      </div>
+    </section>
+  </main>
+
+  <div id="status"></div>
+  <script type="module" src="/dbtable.js"></script>
+</body>
+</html>
