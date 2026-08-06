@@ -53,6 +53,24 @@ main.narrow { max-width: 660px; margin: 0; }
 .layout { display: grid; grid-template-columns: minmax(320px, 420px) 1fr; gap: 16px; align-items: start; }
 @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
 
+/* --- 카메라 제어: 좌측 조작 열만 스크롤 ---------------------------------
+   조작 카드가 4장이라 세로로 길다. 페이지 전체가 스크롤되면 방향 패드까지 내려간 순간
+   **영상이 화면 밖으로 나가** 무엇이 움직였는지 못 본다. 좌측만 자체 스크롤로 만들고
+   영상 열은 제자리에 붙여 둔다.
+   높이 계산: 상단바 60px + main 위 여백 20px = 80px 아래에서 시작하고, 아래 여백 20px 를 남긴다.
+   1100px 이하에서는 레이아웃이 한 열로 접히므로(위 .layout 미디어쿼리) 적용하지 않는다 —
+   그때는 높이를 가두면 짧은 화면에서 조작 카드가 통째로 갇힌다. */
+@media (min-width: 1101px) {
+  .control-column {
+    max-height: calc(100vh - 100px);
+    overflow-y: auto;
+    padding-right: 6px;                          /* 스크롤바가 카드 테두리를 덮지 않게 */
+    scrollbar-width: thin;
+    scrollbar-color: var(--line) transparent;    /* 밝은 기본 스크롤바가 어두운 판에서 튄다 */
+  }
+  .stream-column { position: sticky; top: 80px; }
+}
+
 /* --- 주차면 탐색: 좌측 조작 · 우측 영상 --- */
 .discovery-layout {
   grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
