@@ -45,7 +45,7 @@
  * 그래도 잊었을 때를 대비해, 여는 시점에 이 `SCHEMA_SQL` 과 실제 파일을 대조해 없는 표·열을
  * 이름째 던지는 안전망이 있다(`database.ts` 의 `verifySchema`) — 판을 안 올려도 대조가 잡는다.
  */
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export const SCHEMA_SQL = `
 -- 4. 주차장 정보 -------------------------------------------------------------
@@ -68,9 +68,12 @@ CREATE TABLE IF NOT EXISTS camera_info (
   place_id    INTEGER NOT NULL REFERENCES place_info(place_id) ON DELETE RESTRICT,
   -- v2: config.json 이 갖고 있던 나머지. kind 가 없으면 드라이버를 만들 수 없다.
   timeout_ms  INTEGER NOT NULL DEFAULT 5000,
-  kind        TEXT    NOT NULL DEFAULT 'hucoms' CHECK (kind IN ('hucoms', 'backend-core', 'park3d-rpc')),
+  kind        TEXT    NOT NULL DEFAULT 'hucoms' CHECK (kind IN ('hucoms', 'backend-core', 'park3d-rpc', 'idis')),
   -- park3d-rpc 전용 1-based 카메라 번호. **cam_id 와 다른 값이다**(그쪽은 우리 통번).
   park3d_cam_id INTEGER,
+  -- v5: idis 전용. 이 기기 **하나에** 한해 TLS 인증서 검증을 끈다(공장 자체서명 인증서 대응).
+  -- 프로세스 전역 NODE_TLS_REJECT_UNAUTHORIZED 는 서비스 전체의 검증을 끄므로 답이 아니다.
+  insecure_tls INTEGER NOT NULL DEFAULT 0 CHECK (insecure_tls IN (0, 1)),
   -- 실측 줌→화각 곡선 JSON: {"zoomHfov":[{"z":0,"h":57.14}, …]}. 없으면 브리지 박스줌이 꺼진다.
   intrinsics  TEXT    CHECK (intrinsics IS NULL OR json_valid(intrinsics))
 );

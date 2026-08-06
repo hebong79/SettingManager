@@ -220,6 +220,7 @@ function renderEditor() {
   $('camTestResult').textContent = '';
   if (!camera) {
     for (const [elementId] of FIELDS) $(elementId).value = '';
+    $('camInsecureTls').checked = false;
     $('camStreamHint').textContent = '';
     return;
   }
@@ -228,6 +229,9 @@ function renderEditor() {
   }
   $('camKind').value = camera.kind;
   $('camType').value = camera.cam_type;
+  // DB 는 0/1 로 담는다(SQLite 에 boolean 이 없다). `park3d_cam_id` 와 같이 idis 가 아닌
+  // 기기에서도 칸은 보이되 뜻이 없다 — 드라이버가 idis 일 때만 이 값을 읽는다.
+  $('camInsecureTls').checked = Boolean(camera.insecure_tls);
   $('camIntrinsics').value = camera.intrinsics ?? '';
   $('camPlace').replaceChildren();
   for (const place of places) {
@@ -260,6 +264,7 @@ function draft() {
     place_id: Number($('camPlace').value),
     timeout_ms: Number($('camTimeout').value) || 5000,
     park3d_cam_id: $('camPark3d').value.trim() === '' ? null : Number($('camPark3d').value),
+    insecure_tls: $('camInsecureTls').checked,
     intrinsics: $('camIntrinsics').value.trim() === '' ? null : $('camIntrinsics').value.trim(),
   };
   // 비밀번호는 세 갈래로 나간다 — 서버의 규칙과 같아야 한다.
@@ -314,7 +319,7 @@ function wireCameraTab() {
   });
 
   for (const [elementId] of FIELDS) $(elementId).addEventListener('input', () => setDirty(true));
-  for (const elementId of ['camKind', 'camType', 'camPlace', 'camIntrinsics', 'camPassword', 'camPasswordClear']) {
+  for (const elementId of ['camKind', 'camType', 'camPlace', 'camIntrinsics', 'camPassword', 'camPasswordClear', 'camInsecureTls']) {
     $(elementId).addEventListener('input', () => setDirty(true));
     $(elementId).addEventListener('change', () => setDirty(true));
   }

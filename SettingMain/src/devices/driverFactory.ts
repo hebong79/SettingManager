@@ -2,6 +2,7 @@ import type { AppConfig, CameraConfig } from '../config/types.js';
 import { BackendCoreClient } from './backendCore/backendCoreClient.js';
 import { CameraDriverError, type CameraDriver } from './cameraDriver.js';
 import { HucomsClient } from './hucoms/hucomsClient.js';
+import { IdisCameraClient } from './idis/index.js';
 import { Park3DRpcClient } from './park3d/park3dRpcClient.js';
 
 /**
@@ -35,6 +36,17 @@ export function createDriver(camera: CameraConfig, config: AppConfig, fetchImpl?
         camId: camera.camId,
         timeoutMs: camera.timeoutMs,
         fetchImpl,
+      });
+    case 'idis':
+      // IDIS WebAPI v2.20. `fetchImpl` 을 넘기지 않는 유일한 종류다 — 요청별 TLS 옵션 때문에
+      // `fetch` 가 아니라 `node:http`/`node:https` 를 쓴다(`devices/idis/README.md`).
+      return new IdisCameraClient({
+        cameraId: camera.id,
+        baseUrl: camera.controlUrl,
+        username: camera.username,
+        password: camera.password,
+        timeoutMs: camera.timeoutMs,
+        insecureTls: camera.insecureTls === true,
       });
     default: {
       const unknown: never = camera.kind;
