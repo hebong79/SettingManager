@@ -14,28 +14,53 @@ async function optionsSource(): Promise<string> {
   return readFile(new URL('../web/optionsDb.js', import.meta.url), 'utf8');
 }
 
+type PortPairWarning = (controlUrl: string, streamUrl: string, kind?: string, camId?: string | number) => string;
+
 /** `function portPairWarning(...) { ... }` 블록만 떼어 낸다(최상위 함수라 닫는 중괄호가 열 0에 있다). */
-async function loadPortPairWarning(): Promise<(controlUrl: string, streamUrl: string, kind?: string) => string> {
+async function loadPortPairWarning(): Promise<PortPairWarning> {
   const js = await optionsSource();
   const start = js.indexOf('function portPairWarning');
   expect(start).toBeGreaterThan(-1);
   const end = js.indexOf('\n}', start) + 2;
   const body = js.slice(start, end);
-  return new Function(`${body}\nreturn portPairWarning;`)() as (controlUrl: string, streamUrl: string, kind?: string) => string;
+  return new Function(`${body}\nreturn portPairWarning;`)() as PortPairWarning;
 }
 
-describe('옵션 화면 — Park3D 포트짝 경고 오탐', () => {
-  it('kind 를 넘겨받아 park3d-rpc 는 경고 대상에서 뺀다', async () => {
+describe('옵션 화면 — Park3D 포트 경고', () => {
+  it('힌트가 화면의 지금 값(종류·camId)을 넘긴다 — 저장된 행을 보면 바꾸는 즉시 거짓말이 된다', async () => {
     const js = await optionsSource();
-    expect(js).toContain("if (kind === 'park3d-rpc') return '';");
     // 기기 편집이 카메라 탭으로 옮겨지면서 입력칸 id 가 fieldControlUrl → camUrl 이 됐다.
-    expect(js).toContain("portPairWarning($('camUrl').value.trim(), raw, kind)");
-    expect(js).toContain("const kind = selected()?.kind;");
+    expect(js).toContain("portPairWarning($('camUrl').value.trim(), raw, kind, $('camPark3d').value.trim())");
+    expect(js).toContain("const kind = $('camKind').value;");
+    expect(js).toContain("$('camPark3d').addEventListener('input', streamHint);");
   });
 
-  it('제어와 영상이 같은 포트여도 경고하지 않는다 — Park3D 는 /stream 이 같은 포트다', async () => {
+  it('camId 에 맞는 영상 포트(13600 + camId)면 경고하지 않는다', async () => {
     const portPairWarning = await loadPortPairWarning();
-    expect(portPairWarning('http://h:13510', 'http://h:13510/stream', 'park3d-rpc')).toBe('');
+    expect(portPairWarning('http://h:13510', 'http://h:13602/stream', 'park3d-rpc', 2)).toBe('');
+    expect(portPairWarning('http://h:13510', 'http://h:13601/stream', 'park3d-rpc', '1')).toBe('');
+    expect(portPairWarning('http://h:13510', 'http://h:13650/stream', 'park3d-rpc', 50)).toBe('');
+  });
+
+  it('영상 포트가 camId 와 어긋나면 올바른 포트를 알려 준다 — 다른 카메라를 보게 된다', async () => {
+    const portPairWarning = await loadPortPairWarning();
+    const warning = portPairWarning('http://h:13510', 'http://h:13605/stream', 'park3d-rpc', 2);
+    expect(warning).toMatch(/13602/);
+    expect(warning).toMatch(/13605/);
+  });
+
+  it('제어 URL 에 영상 포트를 적으면 경고한다 — 404 가 아니라 영상이 와서 조용히 실패하는 자리다', async () => {
+    const portPairWarning = await loadPortPairWarning();
+    expect(portPairWarning('http://h:13601', 'http://h:13601/stream', 'park3d-rpc', 1)).toMatch(/영상 포트/);
+    expect(portPairWarning('http://h:13650', 'http://h:13650/stream', 'park3d-rpc', 50)).toMatch(/영상 포트/);
+    // 경계 밖 — RPC 서버 포트는 경고 대상이 아니다.
+    expect(portPairWarning('http://h:13600', 'http://h:13601/stream', 'park3d-rpc', 1)).toBe('');
+  });
+
+  it('camId 를 아직 안 적었으면 경고하지 않는다 — 포트를 계산할 근거가 없다', async () => {
+    const portPairWarning = await loadPortPairWarning();
+    expect(portPairWarning('http://h:13510', 'http://h:13602/stream', 'park3d-rpc', '')).toBe('');
+    expect(portPairWarning('http://h:13510', 'http://h:13602/stream', 'park3d-rpc')).toBe('');
   });
 
   it('다른 종류의 기존 경고 로직은 그대로다', async () => {
@@ -46,9 +71,10 @@ describe('옵션 화면 — Park3D 포트짝 경고 오탐', () => {
     expect(portPairWarning('http://h:8081', 'http://h:8095')).toMatch(/8091/);
   });
 
-  it('영상 안내 문구도 park3d-rpc 에서는 포트 +10 규칙을 말하지 않는다', async () => {
+  it('영상 안내 문구가 카메라별 포트 규칙을 말한다 — "같은 포트" 전제는 사라졌다', async () => {
     const js = await optionsSource();
-    expect(js).toContain('Park3D 는 같은 포트의 /stream 을 중계합니다');
+    expect(js).toContain('Park3D 영상은 카메라별 포트 13600 + camId 입니다');
+    expect(js).not.toContain('같은 포트');
   });
 
   it('kind 편집 입력칸은 여전히 없다 — kind 는 config.json 직접 편집으로만 바꾼다', async () => {

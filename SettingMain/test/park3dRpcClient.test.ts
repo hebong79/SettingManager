@@ -206,7 +206,8 @@ describe('createDriver — 종류 분기의 유일한 지점', () => {
   // 카메라의 정본이 DB 로 옮겨져 `normalizeConfig` 는 더 이상 cameras 를 읽지 않는다.
   // 드라이버 조립은 카메라 1건 + 설정만 있으면 되므로 그 둘을 따로 만든다.
   const config = normalizeConfig({ activeCameraId: 'sim-2' });
-  const camera = normalizeCamera({ id: 'sim-2', kind: 'park3d-rpc', controlUrl: 'http://192.168.0.125:13510', streamUrl: 'http://192.168.0.125:13510/stream', camId: 1 })!;
+  // 제어는 RPC 서버 하나(13510), 영상은 카메라별 포트 13600 + camId — camId 1 이면 13601 이다.
+  const camera = normalizeCamera({ id: 'sim-2', kind: 'park3d-rpc', controlUrl: 'http://192.168.0.125:13510', streamUrl: 'http://192.168.0.125:13601/stream', camId: 1 })!;
 
   it('park3d-rpc 설정은 Park3DRpcClient 로 조립된다', () => {
     const driver = createDriver(camera, config);

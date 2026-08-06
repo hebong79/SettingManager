@@ -81,14 +81,14 @@
       "timeoutMs": 5000
     },
     {
-      "_comment": "언리얼 Park3D JSON-RPC 시뮬레이터. 제어(POST /rpc)와 영상(/stream)이 같은 포트다. 인증을 쓰지 않으므로 username/password 는 비운다. camId 는 1-based 필수값이다.",
+      "_comment": "언리얼 Park3D JSON-RPC 시뮬레이터. 제어(POST /rpc)는 RPC 서버 하나(13510)이고, 영상(/stream)은 카메라마다 다른 포트 13600 + camId (13601~13650)다. 제어 URL 에 영상 포트를 적으면 404 대신 영상이 와서 PTZ 만 조용히 안 먹는다. 인증을 쓰지 않으므로 username/password 는 비운다. camId 는 1-based 필수값이다.",
       "id": "simulator-2",
       "label": "Park3D 시뮬 (RPC)",
       "kind": "park3d-rpc",
       "controlUrl": "http://<시뮬IP>:13510",
       "username": "",
       "password": "",
-      "streamUrl": "http://<시뮬IP>:13510/stream",
+      "streamUrl": "http://<시뮬IP>:13601/stream",
       "timeoutMs": 5000,
       "camId": 1
     }
