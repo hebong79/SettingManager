@@ -802,6 +802,30 @@ describe('영상·정적 파일', () => {
     expect(css).toContain('.discovery-stream-actions .row { justify-content: flex-end; }');
   });
 
+  /**
+   * 조작 카드가 4장이라 페이지 전체가 스크롤되면 방향 패드까지 내려간 순간 영상이 화면 밖으로 나간다.
+   * 좌측 열만 자체 스크롤이고 영상 열은 붙어 있어야 한다.
+   */
+  it('카메라 제어 CSS는 좌측 조작 열만 스크롤시키고 영상 열은 붙여 둔다', async () => {
+    const html = await readFile(join(process.cwd(), 'web', 'index.html'), 'utf8');
+    const css = await readFile(join(process.cwd(), 'web', 'app.css'), 'utf8');
+
+    // CSS 가 붙을 자리가 실제로 있어야 한다 — 클래스가 빠지면 규칙은 조용히 아무 데도 적용되지 않는다.
+    expect(html).toContain('<div class="control-column">');
+    expect(html).toContain('<div class="stream-column">');
+
+    const rule = css.slice(css.indexOf('.control-column {'));
+    expect(rule.indexOf('.control-column {')).toBe(0);          // 규칙을 실제로 찾았다는 확인
+    const body = rule.slice(0, rule.indexOf('}'));
+    expect(body).toContain('max-height: calc(100vh - 100px);');
+    expect(body).toContain('overflow-y: auto;');
+    expect(css).toContain('.stream-column { position: sticky; top: 80px; }');
+
+    // 한 열로 접히는 폭에서 높이를 가두면 조작 카드가 통째로 갇힌다 — 데스크톱 폭에서만 적용한다.
+    const block = css.slice(css.indexOf('카메라 제어: 좌측 조작 열만 스크롤'), css.indexOf('.control-column {'));
+    expect(block).toContain('@media (min-width: 1101px)');
+  });
+
   it('discovery 화면은 구현을 모른다 — 단일 경로와 capability 만 쓴다', async () => {
     const source = await (await fetch(`${base}/discovery.js`)).text();
     expect(source).not.toContain('useBackendCore');
