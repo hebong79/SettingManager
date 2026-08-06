@@ -94,8 +94,8 @@ beforeEach(async () => {
   const db = openDatabase({ path: ':memory:' });
   const configStore = new ConfigStore(join(dir, 'config.json'), db);
   await configStore.load();
-  const presetStore = new PresetStore(join(dir, 'presets.json'), () => '2026-08-05T00:00:00.000Z');
-  await presetStore.load();
+  // 프리셋 정본은 preset_info 표다 — 파일이 아니라 같은 DB 를 본다.
+  const presetStore = new PresetStore(db);
   const slotStore = new SlotStore(join(dir, 'slots.json'));
   await slotStore.load();
   const devicePresetRegistryStore = new DevicePresetRegistryStore(join(dir, 'device-preset-registry.json'), () => '2026-08-05T00:00:00.000Z');

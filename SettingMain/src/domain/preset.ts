@@ -1,13 +1,22 @@
-import { clampPtz, type PtzRaw } from './ptz.js';
+import type { PtzRaw } from './ptz.js';
 
-/** 프리셋 도메인. 파일 I/O 없는 순수 계층 — 목록 변환만 한다. */
+/**
+ * 프리셋 도메인. **정본은 `preset_info` 표다**(2026-08-06) — 이 파일에는 저장 위치와 무관한
+ * 이름 규칙만 남는다.
+ *
+ * 예전에는 여기에 목록을 통째로 받아 새 목록을 내는 순수 함수들(`listFor`·`addPreset`·
+ * `updatePreset`·`removePreset`)이 있었다. 저장소가 JSON 파일 하나라 배열이 곧 전부였기
+ * 때문이다. DB 로 옮기면서 그 배열이 사라졌고, 남겨 두면 **아무도 부르지 않는데 규칙만
+ * 두 벌**이 된다(도메인 배열판 + 저장소 SQL판). 그래서 걷어내고 규칙 자체만 남겼다.
+ */
 
 export interface Preset {
+  /** `preset_info.id`(대리키)의 문자열. 화면에는 불투명한 값이다. */
   id: string;
+  /** `camera_info.cam_uuid`. 서비스가 쓰는 기기 id 다. */
   cameraId: string;
   name: string;
   ptz: PtzRaw;
-  updatedAt: string;
 }
 
 export class PresetError extends Error {
@@ -16,64 +25,10 @@ export class PresetError extends Error {
   }
 }
 
-export function listFor(presets: Preset[], cameraId: string): Preset[] {
-  return presets.filter((p) => p.cameraId === cameraId);
-}
-
-/** 같은 카메라 안에서 이름은 유일해야 한다 — 콤보박스에서 구분이 안 되면 잘못 이동한다. */
-function assertNameFree(presets: Preset[], cameraId: string, name: string, exceptId?: string): void {
-  const clash = presets.some((p) => p.cameraId === cameraId && p.name === name && p.id !== exceptId);
-  if (clash) throw new PresetError(`같은 이름의 프리셋이 이미 있습니다: ${name}`, 409);
-}
-
-function normalizeName(name: unknown): string {
+/** 저장 전에 이름을 다듬고 검사한다. 빈 이름은 콤보박스에서 고를 수 없는 줄이 된다. */
+export function normalizeName(name: unknown): string {
   const value = typeof name === 'string' ? name.trim() : '';
   if (!value) throw new PresetError('프리셋 이름이 필요합니다');
   if (value.length > 60) throw new PresetError('프리셋 이름은 60자 이하여야 합니다');
   return value;
-}
-
-export function addPreset(
-  presets: Preset[],
-  input: { cameraId: string; name: string; ptz: PtzRaw },
-  now: string,
-  nextId: string,
-): { presets: Preset[]; preset: Preset } {
-  const name = normalizeName(input.name);
-  assertNameFree(presets, input.cameraId, name);
-  const preset: Preset = {
-    id: nextId,
-    cameraId: input.cameraId,
-    name,
-    ptz: clampPtz(input.ptz),
-    updatedAt: now,
-  };
-  return { presets: [...presets, preset], preset };
-}
-
-export function updatePreset(
-  presets: Preset[],
-  id: string,
-  change: { name?: string; ptz?: PtzRaw },
-  now: string,
-): { presets: Preset[]; preset: Preset } {
-  const current = presets.find((p) => p.id === id);
-  if (!current) throw new PresetError(`프리셋을 찾을 수 없습니다: ${id}`, 404);
-
-  const name = change.name === undefined ? current.name : normalizeName(change.name);
-  if (name !== current.name) assertNameFree(presets, current.cameraId, name, id);
-
-  const preset: Preset = {
-    ...current,
-    name,
-    ptz: change.ptz ? clampPtz(change.ptz) : current.ptz,
-    updatedAt: now,
-  };
-  return { presets: presets.map((p) => (p.id === id ? preset : p)), preset };
-}
-
-export function removePreset(presets: Preset[], id: string): { presets: Preset[]; removed: Preset } {
-  const removed = presets.find((p) => p.id === id);
-  if (!removed) throw new PresetError(`프리셋을 찾을 수 없습니다: ${id}`, 404);
-  return { presets: presets.filter((p) => p.id !== id), removed };
 }
