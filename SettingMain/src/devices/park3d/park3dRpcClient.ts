@@ -7,6 +7,11 @@ import { CameraDriverError, type CameraDriver, type Slot } from '../cameraDriver
  * **Hucoms CGI 가 아니다** — 같은 시뮬레이터라도 이쪽은 `cam.getPTZ`·`cam.setPTZ` 를 쓰고,
  * `/cgi-bin/...` 을 두드리면 UE HTTP 서버가 `route_handler_not_found` 로 404 를 돌려준다.
  *
+ * **제어와 영상은 다른 포트다.** 제어(`POST /rpc`)는 RPC 서버 하나(실측 13510)이고, 영상은 카메라마다
+ * 다른 포트 `13600 + camId`(13601~13650)의 `GET /stream` 이다. 스트림 포트는 경로를 보지 않고 무조건
+ * MJPEG 를 돌려주므로, `baseUrl` 에 스트림 포트를 적으면 404 가 아니라 영상이 와서 아래 JSON 파싱 오류로만
+ * 드러난다 — 연결은 되는데 PTZ 만 안 먹는 꼴이다.
+ *
  * **인증을 쓰지 않는다.** 이 서버는 무인증으로 열려 있다(실측: 토큰 헤더 없이 `POST /rpc`·`GET /stream` 모두 200).
  * 지금 없는 인증을 미리 배선하지 않는다 — 서버가 나중에 인증을 켜면 401/403 이 아래 `!response.ok` 분기에서
  * 오류로 즉시 드러나므로 조용히 실패하지 않는다.

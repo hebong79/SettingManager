@@ -82,8 +82,8 @@ beforeEach(async () => {
       simulator: { baseUrl: 'http://127.0.0.1:8080' },
       activeCameraId: 'sim-2',
       cameras: [
-        // 실제 config.json 의 simulator-2 와 같은 모양이다(제어·영상이 같은 포트, camId 1-based).
-        { id: 'sim-2', label: 'UE-시뮬2', kind: 'park3d-rpc', controlUrl: 'http://192.168.0.125:13510', username: '', password: '', streamUrl: 'http://192.168.0.125:13510/stream', timeoutMs: 2000, camId: 1 },
+        // 실제 config.json 의 simulator-2 와 같은 모양이다(제어는 RPC 서버 13510, 영상은 13600 + camId, camId 1-based).
+        { id: 'sim-2', label: 'UE-시뮬2', kind: 'park3d-rpc', controlUrl: 'http://192.168.0.125:13510', username: '', password: '', streamUrl: 'http://192.168.0.125:13601/stream', timeoutMs: 2000, camId: 1 },
         { id: 'cam-a', label: '리얼 1', kind: 'hucoms', controlUrl: 'http://10.0.0.1:80', username: 'admin', password: 'secret', streamUrl: 'rtsp://10.0.0.1:554/stream1', timeoutMs: 2000 },
       ],
     }),
