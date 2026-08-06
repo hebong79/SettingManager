@@ -30,6 +30,28 @@ export interface CameraConfig {
   timeoutMs: number;
   /** park3d-rpc 전용. 서버가 요구하는 카메라 번호로 **1-based** 다. 없으면 드라이버가 400 으로 거절한다. */
   camId?: number;
+  /**
+   * 이 카메라가 선 **장소(주차장)**. 커미셔닝 DB 의 `place_info.place_id` 와 같은 값이다.
+   *
+   * 이 값은 그 기기가 DB 에 **처음 등록될 때** 심긴다. 이후에는 **DB 가 기준**이고
+   * (옵션의 장소·카메라 탭에서 옮긴다), 여기 값을 고쳐도 이미 등록된 기기는 움직이지 않는다 —
+   * 그렇게 하지 않으면 화면에서 옮긴 장소가 다음 기동에 조용히 되돌아간다.
+   */
+  place_id?: number;
+  /**
+   * **이 기기의 실측 줌→화각 곡선.** 브리지 코어가 픽셀↔PTZ 를 자체 계산할 때만 쓴다.
+   *
+   * 없으면 계산을 **켜지 않는다**(501). 내장 표를 기본값으로 들면 안 되기 때문이다 —
+   * 그 표는 cam-001(Hucoms) 한 대의 실측 곡선이라, 다른 렌즈·다른 줌 눈금 기기에 그대로
+   * 쓰면 화각이 조용히 그 값으로 보고되고 조준이 수 배 어긋난다
+   * (근거: baro_calory `docs/architecture.md` §광학은 선언한 기기만 갖습니다).
+   */
+  intrinsics?: CameraIntrinsics;
+}
+
+/** 줌 눈금 → 수평 화각(도) 앵커. z 오름차순이며, 표 밖은 외삽하지 않고 양 끝에서 잘린다. */
+export interface CameraIntrinsics {
+  zoomHfov: Array<{ z: number; h: number }>;
 }
 
 export interface StreamingConfig {
@@ -70,12 +92,25 @@ export interface DetectorsConfig {
   lpr: DetectorEndpointConfig;
 }
 
+/**
+ * 3D 차량 박스 추론 사이드카(`baro_calory/tools/baro_object3d_api`).
+ * 브리지 코어의 `vehicleBox` 능력이 이것을 소비한다 — 원격 코어는 backend-core 를 거치므로
+ * 이 설정을 보지 않는다.
+ */
+export interface Object3dConfig {
+  baseUrl: string;
+  /** 사이드카에 등록된 모델 별칭. */
+  model: string;
+  timeoutMs: number;
+}
+
 export interface AppConfig {
   server: { host: string; port: number };
   simulator: { baseUrl: string };
   streaming: StreamingConfig;
   core: CoreConfig;
   detectors: DetectorsConfig;
+  object3d: Object3dConfig;
   activeCameraId: string;
   cameras: CameraConfig[];
 }

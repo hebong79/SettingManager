@@ -15,7 +15,10 @@ import {
   type DiscoveryPresetPort,
   type JobPort,
   type JobStatus,
+  type ParkingSlot,
+  type ParkingSlotPort,
   type PlateHomingStartOptions,
+  type VehicleBoxPort,
 } from '../coreProvider.js';
 
 /**
@@ -82,11 +85,11 @@ export class RemoteCoreProvider implements CoreProvider {
         discoveryPoints: { ok: true },
         calibration: gate(axisOk('calibration'), axisMissing('calibration')),
         plateHoming: gate(axisOk('plateHoming'), axisMissing('plateHoming')),
-        // 구성도는 이 둘을 Backend-Core 아래 두지만, baro_calory 의 대응 API 경로·응답을
-        // 아직 실측하지 못했다. 있을 것 같다는 이유로 ok:true 를 답하면 화면이 버튼을 켜고
-        // 눌린 뒤에야 404 가 난다 — 실측 전까지는 사유와 함께 미지원이 정직한 답이다.
-        vehicleBox: { ok: false, reason: 'backend-core 의 차량 3D 육면체 API 를 아직 확인하지 못했습니다' },
-        slotCreate: { ok: false, reason: 'backend-core 의 주차면 생성 API 를 아직 확인하지 못했습니다' },
+        // 아래 둘은 backend-core 소스에서 경로를 확인해 배선했다(control-api.mjs:485-604).
+        // 3D 는 사이드카가 실제로 떠 있어야 답하므로 게이트를 여기서 판정하지 않고,
+        // 호출 시점의 사이드카 상태가 그대로 드러나게 둔다(status 라우트가 사실을 답한다).
+        vehicleBox: { ok: true },
+        slotCreate: { ok: true },
       },
     };
   }
@@ -144,6 +147,52 @@ export class RemoteCoreProvider implements CoreProvider {
     start: (_ctx, options) => this.job('POST', '/api/calibration/start', { mode: options.mode }),
     status: () => this.job('GET', '/api/calibration/status'),
     stop: () => this.job('POST', '/api/calibration/stop'),
+  };
+
+  /**
+   * 차량 3D 육면체. backend-core 가 사이드카를 **소비**해 자기 어휘로 답하므로 그대로 통과시킨다.
+   * 근거: baro_calory `control-api.mjs:530-604` — `POST /api/discovery/object3d`(본문 없음),
+   * `GET /api/discovery/object3d/status`.
+   */
+  readonly vehicleBox: VehicleBoxPort = {
+    status: async (ctx) => {
+      // 상태를 묻는 질문에 오류로 답하지 않는다 — backend-core 도 사이드카가 죽어 있어도 200 이다.
+      try {
+        const data = await this.t.json<Json>('GET', '/api/discovery/object3d/status');
+        return { configured: false, ready: false, ...data, cameraId: ctx.camera.id };
+      } catch (error) {
+        return { configured: false, ready: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    },
+    detect: async (ctx) => {
+      const data = await this.t.json<Json>('POST', '/api/discovery/object3d', {});
+      const detections = Array.isArray(data.detections) ? (data.detections as Record<string, unknown>[]) : [];
+      // 원격이 준 봉투를 그대로 두고 계약 필드만 보정한다 — 깎으면 늘어난 정보가 사라진다.
+      return { cameraId: ctx.camera.id, capturedAt: new Date().toISOString(), ...data, count: detections.length, detections };
+    },
+  };
+
+  /**
+   * 커미셔닝 주차면. 근거: `control-api.mjs:485-520` — `GET·POST /api/spots`,
+   * `POST /api/spots/:id/goto`, `DELETE /api/spots/:id`.
+   * 상류는 목록을 `{wideShot, spots}` 로 답하므로 `slots` 로 옮겨 담고 나머지는 통과시킨다.
+   */
+  readonly parkingSlots: ParkingSlotPort = {
+    list: async () => {
+      const data = await this.t.json<Json>('GET', '/api/spots');
+      return { ...data, slots: (Array.isArray(data.spots) ? data.spots : []) as ParkingSlot[] };
+    },
+    create: async (_ctx, input) => {
+      const body: Json = { x: input.x, y: input.y };
+      if (input.name !== undefined) body.name = input.name;
+      if (input.box !== undefined) body.box = input.box;
+      return this.t.json<{ slot: ParkingSlot }>('POST', '/api/spots', body);
+    },
+    goto: async (_ctx, slotId) => this.t.json<{ slot: ParkingSlot }>('POST', `/api/spots/${encodeURIComponent(slotId)}/goto`),
+    remove: async (_ctx, slotId) => {
+      await this.t.json<Json>('DELETE', `/api/spots/${encodeURIComponent(slotId)}`);
+      return { removed: slotId };
+    },
   };
 
   readonly plateHoming: JobPort<PlateHomingStartOptions> = {

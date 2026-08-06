@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import type { Server } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createServer } from '../src/api/server.js';
+import { openDatabase } from '../src/db/database.js';
 import { CameraDriverError } from '../src/devices/cameraDriver.js';
 import { ConfigStore } from '../src/config/configStore.js';
 import { PresetStore } from '../src/store/presetStore.js';
@@ -104,7 +105,10 @@ beforeEach(async () => {
   );
   await writeFile(join(dir, 'slots.json'), JSON.stringify({ cameras: { 'cam-a': [{ id: 'A-01', label: 'A구역 1번' }] } }));
 
-  const configStore = new ConfigStore(join(dir, 'config.json'));
+  // 카메라의 정본은 DB 다. config.json 의 cameras[] 는 load() 가 1회 이관하고 파일에서 지운다 —
+  // 그래서 하네스는 예전처럼 config 에 카메라를 적어 두면 되고, 이관 경로도 매번 검증된다.
+  const db = openDatabase({ path: ':memory:' });
+  const configStore = new ConfigStore(join(dir, 'config.json'), db);
   await configStore.load();
   const presetStore = new PresetStore(join(dir, 'presets.json'), () => '2026-07-31T00:00:00.000Z');
   await presetStore.load();
@@ -116,6 +120,8 @@ beforeEach(async () => {
   // 정착 대기가 실제 시간을 흘려보내지 않게 한다(로직은 settle.test.ts 가 검증).
   server = createServer({
     configStore, presetStore, slotStore, devicePresetRegistryStore, fetchImpl: fakeFetch, settleOptions: { sleep: async () => {} },
+    // 커미셔닝 DB 는 메모리로 — 테스트가 실제 config/ 에 파일을 남기지 않는다.
+    db,
     directPresetClientFactory: () => {
       directPresetFactoryCalls += 1;
       return {
@@ -151,7 +157,7 @@ describe('상태·카메라', () => {
     const { body } = await api('/api/cameras');
     expect(body.activeCameraId).toBe('cam-a');
     expect(body.cameras).toHaveLength(2);
-    expect(Object.keys(body.cameras[0]).sort()).toEqual(['controlUrl', 'hasPassword', 'id', 'kind', 'label', 'streamUrl', 'timeoutMs', 'username']);
+    expect(Object.keys(body.cameras[0]).sort()).toEqual(['controlUrl', 'hasPassword', 'id', 'kind', 'label', 'place_id', 'streamUrl', 'timeoutMs', 'username']);
     expect(body.cameras[0]).not.toHaveProperty('password');
     expect(body.cameras[0].hasPassword).toBe(true);
     expect(JSON.stringify(body)).not.toContain('secret');
@@ -530,11 +536,20 @@ describe('코어 구현 전환', () => {
     expect(body.provider).toBe('bridge');
   });
 
-  it('브리지 코어는 탐색을 501 로 거절한다 — 조용히 backend-core 로 넘기지 않는다', async () => {
+  it('브리지 코어는 탐색을 **자기 저장소로** 처리한다 — backend-core 를 두드리지 않는다', async () => {
+    // 계약 변경: 예전에는 브리지가 탐색을 501 로 거절했다. 이제 backend-core 와 같은 파일
+    // 형식으로 자기가 들고 있다. 변하지 않은 것은 "조용히 원격으로 넘기지 않는다"이다.
     const { status, body } = await api('/api/core/discovery/presets');
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ cameraId: 'cam-a', presets: [] });
+    expect(requestedUrls.some((url) => url.includes('/api/discovery/presets'))).toBe(false);
+  });
+
+  it('브리지 코어는 캘리브레이션을 501 로 거절한다 — 네이티브 이미지 처리가 필요하다', async () => {
+    const { status, body } = await api('/api/core/calibration/start', { method: 'POST', body: JSON.stringify({ mode: 'verify' }) });
     expect(status).toBe(501);
     expect(body.error).toMatch(/브리지 코어/);
-    expect(requestedUrls.some((url) => url.includes('/api/discovery/presets'))).toBe(false);
+    expect(requestedUrls.some((url) => url.includes('/api/calibration/start'))).toBe(false);
   });
 
   it('설정을 remote 로 바꾸면 같은 경로가 backend-core 로 간다 — 화면 코드는 그대로다', async () => {
@@ -668,8 +683,10 @@ describe('영상·정적 파일', () => {
     expect(html).toContain('id="cameraSelect"');
     expect(html).toContain('id="editCard"');
     expect(html).toContain('id="applyCamera"');
-    // 폼만 있는 페이지는 한쪽 영역만 쓴다
-    expect(html).toContain('<main class="narrow">');
+    // 폼만 있는 페이지는 한쪽 영역만 쓴다. DB 탭이 생기면서 표를 위해 바깥 폭은 넓혔지만,
+    // **서비스 설정 패널은 여전히 narrow** 다 — 입력칸이 화면 폭만큼 늘어나면 읽기 어렵다는
+    // 그 이유가 이쪽에는 그대로 유효하다(폭 제한은 app.css 의 `main.narrow.options #panelService`).
+    expect(html).toContain('<main class="narrow options">');
   });
 
   it('카메라 제어 정적 계약은 대상 선택 안에서 로컬 프리셋과 분리된 읽기 전용 장비 슬롯 후보 UI를 둔다', async () => {

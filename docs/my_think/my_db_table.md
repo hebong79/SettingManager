@@ -50,7 +50,6 @@
  - slot3d_front_center : 주차면 3D 육면체의 앞면의 중심점( 이미지좌표로 변환된 점)
  - vpd_bbox		: vpd 바운딩 박스
  - lpd_obb		: LPD 번호판 OBB 영역
- - occupy_range	: 점유영역
  - ptz			: 번호판중심 센터라이징 ptz 값
  - img1			: ptz로 이동후 차량 스샷 이미지
 

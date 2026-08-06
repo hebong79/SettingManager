@@ -9,3 +9,10 @@ SettingMain/config/config.json
 
 # 런타임 산출물
 SettingMain/config/presets.json
+
+# 커미셔닝 산출 DB(현장 좌표·계정이 들어간다). WAL 동반 파일까지 무시한다.
+SettingMain/config/setup.db
+SettingMain/config/setup.db-wal
+SettingMain/config/setup.db-shm
+SettingMain/config/discovery-*.json
+SettingMain/config/spots-*.json

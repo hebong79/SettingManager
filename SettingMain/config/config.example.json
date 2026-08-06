@@ -25,6 +25,12 @@
     "lpd": { "baseUrl": "http://127.0.0.1:8002", "timeoutMs": 15000 },
     "lpr": { "baseUrl": "", "timeoutMs": 15000 }
   },
+  "object3d": {
+    "_comment": "차량 3D 육면체 추론 사이드카(baro_calory/tools/baro_object3d_api, 기본 :9070). 브리지 코어의 vehicleBox 능력이 이것을 소비한다. 비우면 그 능력이 꺼지고 사유가 /api/core/capabilities 에 뜬다. 원격(backend-core) 코어는 저쪽이 사이드카를 소비하므로 이 설정을 보지 않는다.",
+    "baseUrl": "",
+    "model": "object3d-primary",
+    "timeoutMs": 30000
+  },
   "activeCameraId": "real-camera-1",
   "cameras": [
     {
@@ -35,7 +41,24 @@
       "username": "<계정>",
       "password": "<비밀번호>",
       "streamUrl": "rtsp://<카메라IP>:554/stream1",
-      "timeoutMs": 5000
+      "timeoutMs": 5000,
+      "_place_id_comment": "이 카메라가 선 장소(주차장). 커미셔닝 DB 의 place_info.place_id 와 같은 값이며, 그 기기가 DB 에 **처음 등록될 때만** 심긴다. 이후에는 DB 가 기준이고 옵션의 장소·카메라 탭에서 옮긴다 — 여기 값을 고쳐도 이미 등록된 기기는 움직이지 않는다(화면에서 옮긴 장소가 다음 기동에 조용히 되돌아가지 않게 하기 위해서다). 생략하면 1 이다.",
+      "place_id": 1,
+      "_intrinsics_comment": "이 기기의 **실측** 줌→화각 곡선. 있으면 브리지 코어가 박스 줌(POST /api/core/center-box)을 자체 계산한다. 없으면 그 능력이 꺼진다 — 내장 표로 대신하지 않는 이유는 그 표가 cam-001 한 대의 곡선이라 다른 렌즈에 쓰면 조준이 수 배 어긋나기 때문이다. 아래 값은 baro_calory 의 cam-001 실측 앵커이며, **다른 카메라에 그대로 복사하면 안 된다**.",
+      "intrinsics": {
+        "zoomHfov": [
+          { "z": 0, "h": 57.14 },
+          { "z": 2000, "h": 47.89 },
+          { "z": 3000, "h": 43.37 },
+          { "z": 5129, "h": 34.05 },
+          { "z": 8000, "h": 22.59 },
+          { "z": 10338, "h": 14.68 },
+          { "z": 12161, "h": 9.77 },
+          { "z": 14000, "h": 6.29 },
+          { "z": 15000, "h": 4.88 },
+          { "z": 16384, "h": 2.39 }
+        ]
+      }
     },
     {
       "id": "real-camera-2",

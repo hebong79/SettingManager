@@ -4,14 +4,14 @@ import { describe, expect, it } from 'vitest';
 /**
  * 옵션 화면의 park3d-rpc 대응.
  *
- * `web/options.js` 는 브라우저 모듈이라(최상단에서 `./api.js` 를 import 하고 document 를 만진다)
+ * `web/optionsDb.js` 는 브라우저 모듈이라(최상단에서 `./api.js` 를 import 하고 document 를 만진다)
  * 테스트가 통째로 import 할 수 없다. 그래서 소스를 읽어 검사하고,
  * 순수 함수인 `portPairWarning` 만 본문을 떼어 내 **실제로 평가**한다 — 문자열 존재 확인만으로는
  * 조건이 뒤집혀 있어도 통과하기 때문이다.
  */
 
 async function optionsSource(): Promise<string> {
-  return readFile(new URL('../web/options.js', import.meta.url), 'utf8');
+  return readFile(new URL('../web/optionsDb.js', import.meta.url), 'utf8');
 }
 
 /** `function portPairWarning(...) { ... }` 블록만 떼어 낸다(최상위 함수라 닫는 중괄호가 열 0에 있다). */
@@ -28,7 +28,8 @@ describe('옵션 화면 — Park3D 포트짝 경고 오탐', () => {
   it('kind 를 넘겨받아 park3d-rpc 는 경고 대상에서 뺀다', async () => {
     const js = await optionsSource();
     expect(js).toContain("if (kind === 'park3d-rpc') return '';");
-    expect(js).toContain('portPairWarning($(\'fieldControlUrl\').value.trim(), raw, kind)');
+    // 기기 편집이 카메라 탭으로 옮겨지면서 입력칸 id 가 fieldControlUrl → camUrl 이 됐다.
+    expect(js).toContain("portPairWarning($('camUrl').value.trim(), raw, kind)");
     expect(js).toContain("const kind = selected()?.kind;");
   });
 

@@ -12,8 +12,12 @@
     "forceConsistentCasingInFileNames": true,
     "sourceMap": true,
     "resolveJsonModule": true,
-    "types": ["node"]
+    "types": ["node"],
+    // 벤더링한 `src/vendor/**/*.mjs`(남의 코드) 하나 때문에 켠다. `checkJs` 는 **켜지 않는다** —
+    // 고치지 않기로 한 코드에 우리 규칙(strict)을 들이대면 고치게 되고, 그 순간 벤더링이 아니라
+    // 포크가 된다. 타입은 tsc 가 그 JS 에서 추론한 것을 쓴다.
+    "allowJs": true
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"],
+  "include": ["src/**/*.ts", "src/vendor/**/*.mjs", "test/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

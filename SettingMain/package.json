@@ -4,7 +4,7 @@
   "description": "Setting 관련 Agent 들을 관리하는 Agent",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.5"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",

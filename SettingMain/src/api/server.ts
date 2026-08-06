@@ -1,12 +1,14 @@
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { CameraDriverError } from '../devices/cameraDriver.js';
-import { CoreBusyError, CoreUnsupportedError } from '../core/coreProvider.js';
+import { CoreBusyError, CoreNotFoundError, CoreUnsupportedError } from '../core/coreProvider.js';
 import { DetectorError, DetectorUnsupportedError } from '../detectors/detectorTypes.js';
+import { DatabaseError } from '../db/database.js';
 import { ConfigError } from '../config/normalize.js';
 import { PresetError } from '../domain/preset.js';
 import { HttpError, sendError } from './httpUtil.js';
 import { CameraLeaseRegistry } from '../core/providerFactory.js';
 import { createCoreRoutes } from './routes/coreRoutes.js';
+import { dbRoutes } from './routes/dbRoutes.js';
 import { detectorRoutes } from './routes/detectorRoutes.js';
 import { devicePresetRoutes } from './routes/devicePresetRoutes.js';
 import { healthRoutes } from './routes/healthRoutes.js';
@@ -26,13 +28,14 @@ export type { ServerDeps } from './routes/routeContext.js';
 export function createServer(deps: ServerDeps): Server {
   // 카메라별 점유는 프로세스 수명 동안 유지돼야 하므로 서버당 하나만 만든다.
   const leases = new CameraLeaseRegistry();
-  const coreRoutes = createCoreRoutes({ leases, settleOptions: deps.settleOptions, fetchImpl: deps.fetchImpl });
+  const coreRoutes = createCoreRoutes({ leases, settleOptions: deps.settleOptions, fetchImpl: deps.fetchImpl, db: deps.db });
 
   /** 순서가 계약이다 — 앞선 라우트가 false 를 돌려줘야 다음이 본다. */
   const handlers: RouteHandler[] = [
     healthRoutes,
     coreRoutes,
     settingsRoutes,
+    dbRoutes,
     detectorRoutes,
     devicePresetRoutes,
     ptzRoutes,
@@ -71,8 +74,10 @@ function fail(res: ServerResponse, error: unknown): void {
   if (error instanceof PresetError) return sendError(res, error.statusCode, error.message);
   if (error instanceof CoreUnsupportedError) return sendError(res, error.statusCode, error.message);
   if (error instanceof CoreBusyError) return sendError(res, error.statusCode, error.message);
+  if (error instanceof CoreNotFoundError) return sendError(res, error.statusCode, error.message);
   if (error instanceof DetectorUnsupportedError) return sendError(res, error.statusCode, error.message);
   if (error instanceof DetectorError) return sendError(res, error.statusCode, error.message);
+  if (error instanceof DatabaseError) return sendError(res, error.statusCode, error.message);
   if (error instanceof CameraDriverError) return sendError(res, error.statusCode, error.message);
   if (error instanceof ConfigError) return sendError(res, error.statusCode, error.message);
   sendError(res, 500, error instanceof Error ? error.message : String(error));

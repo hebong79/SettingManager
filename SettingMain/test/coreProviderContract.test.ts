@@ -16,12 +16,6 @@ import { checkCapabilitiesShape, checkJobLifecycle, checkUnsupportedRejects } fr
 
 const CTX = { camera: { id: 'cam-a' }, driver: {} } as unknown as CoreContext;
 
-/** 포트가 아직 없는 능력들. 어떤 구현도 이것들을 `ok:true` 로 답할 수 없다. */
-const PORTLESS_DENIED = {
-  vehicleBox: { ok: false, reason: '포트 없음' },
-  slotCreate: { ok: false, reason: '포트 없음' },
-} as const;
-
 function capabilities(overrides: Partial<CoreCapabilities> = {}): CoreCapabilities {
   return {
     provider: 'bridge',
@@ -64,6 +58,16 @@ function honestProvider(): CoreProvider {
     },
     calibration: job('calibration'),
     plateHoming: job('plateHoming'),
+    vehicleBox: {
+      status: async () => ({ configured: false, ready: false }),
+      detect: async () => deny('vehicleBox' as never),
+    },
+    parkingSlots: {
+      list: async () => deny('slotCreate' as never),
+      create: async () => deny('slotCreate' as never),
+      goto: async () => deny('slotCreate' as never),
+      remove: async () => deny('slotCreate' as never),
+    },
   } as unknown as CoreProvider;
 }
 
@@ -131,18 +135,8 @@ describe('checkUnsupportedRejects', () => {
 
   it('지원한다고 선언한 능력은 검사하지 않는다 — 여기서 실제 동작까지 보지는 않는다', async () => {
     const provider = honestProvider();
-    const claimed = capabilities({ supported: { ...allCapabilities({ ok: true }), ...PORTLESS_DENIED } });
-    expect(await checkUnsupportedRejects(provider, CTX, claimed)).toEqual([]);
-  });
-
-  it('실행 표면이 없는 능력을 할 수 있다고 답하면 잡는다 — 켜진 버튼이 아무 일도 하지 않게 된다', async () => {
-    const provider = honestProvider();
     const claimed = capabilities({ supported: allCapabilities({ ok: true }) });
-    const violations = await checkUnsupportedRejects(provider, CTX, claimed);
-    expect(violations).toEqual([
-      expect.stringContaining('vehicleBox 은(는) 실행 표면(포트)이 없는데'),
-      expect.stringContaining('slotCreate 은(는) 실행 표면(포트)이 없는데'),
-    ]);
+    expect(await checkUnsupportedRejects(provider, CTX, claimed)).toEqual([]);
   });
 });
 

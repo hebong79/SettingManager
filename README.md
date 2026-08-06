@@ -26,7 +26,8 @@ SettingManager  http://127.0.0.1:13030/
 | 화면 | URL |
 |---|---|
 | **카메라 제어** | <http://127.0.0.1:13030/> |
-| **옵션** | <http://127.0.0.1:13030/options> |
+| **옵션** | <http://127.0.0.1:13030/options> — 서비스 설정 · 장소 · 카메라 · 프리셋 4개 탭 |
+| **DB 테이블 뷰어** | <http://127.0.0.1:13030/dbtable> — 테이블 선택 · 텍스트/기간/조건 검색 (읽기 전용) |
 | 상태 확인(JSON) | <http://127.0.0.1:13030/api/health> |
 
 > 기본 바인드는 **`127.0.0.1`(이 PC에서만 접속)** 이다.
@@ -37,7 +38,7 @@ SettingManager  http://127.0.0.1:13030/
 
 | 항목 | 용도 | 확인 |
 |---|---|---|
-| Node.js 20 이상 | 런타임 | `node --version` |
+| Node.js **22.5 이상** | 런타임 (`node:sqlite` 내장 모듈을 쓴다) | `node --version` |
 | **ffmpeg** (PATH) | RTSP → MJPEG 전사 | `ffmpeg -version` |
 
 ffmpeg 가 없으면 서버는 정상 기동하지만 **RTSP 카메라의 영상만** 안 나온다(그 외 기능은 모두 동작).
@@ -94,6 +95,8 @@ ffmpeg 가 없으면 서버는 정상 기동하지만 **RTSP 카메라의 영상
 | `config.example.json` | 초기 예시 사본 | 사람이 참고 |
 | `presets.json` | 프리셋(이름 + PTZ) | 제어 페이지가 갱신 |
 | `slots.json` | 실카메라 주차면 목록 | 사람이 편집(읽기 전용) |
+| **`setup.db`** | **커미셔닝 산출 SQLite** — 장소·카메라·프리셋·주차면·조준해·주차상태 | 브리지 코어가 갱신. **커밋하지 않는다**(`.gitignore`) |
+| `discovery-*.json` · `spots-*.json` | backend-core 형식 **내보내기 산출물** | `exportBackendCoreFiles()` 가 DB 에서 뽑는다 |
 
 ### `config.json` 카메라 항목
 
@@ -129,6 +132,37 @@ ffmpeg 가 없으면 서버는 정상 기동하지만 **RTSP 카메라의 영상
 
 `perCamera` 는 기기별 재정의이며 전역 `provider` 를 이긴다. 어느 쪽을 골라도 **경로와 화면은 같고**,
 무엇을 할 수 있는지만 달라진다 — `GET /api/core/capabilities` 로 확인한다.
+
+| 능력 | bridge | remote |
+|---|:--:|:--:|
+| 센터링 `center` | ✅ | ✅ |
+| 박스 줌 `centerBox` | ✅ 실측 화각표 필요 | ❌ 상류에 계약 없음 |
+| 탐색 프리셋·점 | ✅ 자체 저장소 | ✅ |
+| 커미셔닝 주차면 `slotCreate` | ✅ 자체 저장소 | ✅ |
+| 차량 3D 육면체 `vehicleBox` | ✅ 사이드카 필요 | ✅ |
+| 캘리브레이션 · 번호판 호밍 | ❌ 네이티브 이미지 처리 필요 | ✅ |
+
+브리지는 `config/discovery-<기기id>.json` · `config/spots-<기기id>.json` 에 저장하며,
+**형식이 backend-core 와 같아** 두 구현 사이에서 파일을 옮겨 쓸 수 있다.
+광학·조준 기하는 `@baro/profile` 을 [벤더링](SettingMain/src/vendor/baro-profile/VENDOR.md)해
+쓰므로 `baro_calory` 저장소가 없는 기계에서도 혼자 선다.
+
+### `config.json` 3D 차량 박스 사이드카
+
+```json
+"object3d": { "baseUrl": "http://127.0.0.1:9070", "model": "object3d-primary", "timeoutMs": 30000 }
+```
+
+`baro_calory/tools/baro_object3d_api` 다. 비우면 `vehicleBox` 능력이 꺼진다.
+
+### `config.json` 카메라 실측 화각표
+
+```json
+"intrinsics": { "zoomHfov": [{ "z": 0, "h": 57.14 }, { "z": 8000, "h": 22.59 }] }
+```
+
+**이 기기에서 실측한 곡선**이어야 한다. 있으면 브리지가 박스 줌을 자체 계산하고, 없으면 그
+능력이 꺼진다 — 남의 표로 대신하면 조준이 수 배 어긋나기 때문이다.
 
 ### `config.json` 검출기(API 계층)
 
@@ -170,7 +204,10 @@ ffmpeg 가 없으면 서버는 정상 기동하지만 **RTSP 카메라의 영상
 | `PUT /api/presets/:id` | `{ name?, ptz? }` 수정 |
 | `DELETE /api/presets/:id` | 삭제 |
 | `POST /api/presets/:id/goto` | 프리셋으로 이동 |
-| `GET /api/core/capabilities` | 현재 코어가 할 수 있는 것. 못 하는 능력은 **사유와 함께** `ok:false` |
+| `GET /api/core/capabilities` | 현재 코어가 할 수 있는 것(8종). 못 하는 능력은 **사유와 함께** `ok:false` |
+| `POST /api/core/center-box` | 드래그 박스가 화면을 채우도록 조준+줌. 브리지는 **자체 계산**(실측 화각표 필요) |
+| `GET /api/core/vehicle-box/status` · `POST /api/core/vehicle-box` | 차량 3D 육면체 — 준비 상태 · 지금 프레임 검출 |
+| `GET·POST /api/core/slots` · `POST /api/core/slots/:id/goto` · `DELETE /api/core/slots/:id` | **커미셔닝 주차면** — `/api/slots`(시뮬·로컬 목록)와 다른 것이다 |
 | `GET /api/detectors` | 검출기 3종의 사용 가능 여부 + 못 쓰는 사유 |
 | `POST /api/detectors/:name/detect` | 대상 카메라 스냅샷 1장을 VPD·LPD·LPR 로 보낸다. **이미지를 올리지 않는다** — 서버가 찍는다 |
 | `GET /api/slots` | 주차면 목록 + `source`(`simulator`·`local`) |
@@ -246,3 +283,6 @@ npm run build       # dist/ 로 컴파일
 | `20260731_195049_시뮬레이터_연동_및_결함수정.md` | 기기 관리 확장 · UE 시뮬 연동 · 결함 4건 재현/수정 · 실측 기록 |
 | `20260731_200035_카메라_사용_개념도_및_순서도.md` | **카메라가 어떻게 쓰이는가** — 개념도 · 흐름도 8종 · 규칙 요약 |
 | `20260805_185800_구조정렬_my_setting_manager_구성반영.md` | 구성도 대조 · `bridge` 리네임 · 코어 능력 8종 · API 계층(VPD/LPD/LPR) · 영향도 |
+| `20260805_195226_Bridge_BackendCore_구현과_독립운용.md` | baro_calory 분석 · `@baro/profile` 벤더링 · 브리지 능력 4종 구현 · **독립 운용 가이드** |
+| `20260805_211110_커미셔닝_SQLite_DB_구성.md` | `my_db_table.md` → SQLite 스키마 · 저장소 계층 · backend-core JSON 내보내기 |
+| `20260805_233245_장소구분_DB탭_테이블뷰어.md` | config `place_id` · config↔DB 주인 규칙 · 옵션 DB 탭 · 테이블 뷰어 |

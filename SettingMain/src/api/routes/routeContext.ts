@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { DatabaseSync } from 'node:sqlite';
 import type { CameraDriver } from '../../devices/cameraDriver.js';
 import { createDriver, findCamera } from '../../devices/driverFactory.js';
 import type { HucomsPresetClient } from '../../devices/hucoms/hucomsPresetClient.js';
@@ -23,6 +24,11 @@ export interface ServerDeps {
   settleOptions?: SettleOptions;
   /** 장비 capability 직접 조회의 테스트 주입 지점. production에서는 native HTTP adapter를 쓴다. */
   directPresetClientFactory?: (camera: CameraConfig) => DirectPresetClient;
+  /**
+   * 커미셔닝 산출 DB(SQLite). 브리지 코어의 탐색 프리셋·점·주차면이 여기 산다.
+   * 주지 않으면 그 능력들이 꺼진 채로 뜬다 — 서버는 DB 없이도 기동한다.
+   */
+  db?: DatabaseSync;
 }
 
 export type DirectPresetClient =

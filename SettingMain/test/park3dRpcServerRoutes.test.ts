@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import type { Server } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createServer } from '../src/api/server.js';
+import { openDatabase } from '../src/db/database.js';
 import { ConfigStore } from '../src/config/configStore.js';
 import { PresetStore } from '../src/store/presetStore.js';
 import { SlotStore } from '../src/store/slotStore.js';
@@ -88,7 +89,10 @@ beforeEach(async () => {
     }),
   );
 
-  const configStore = new ConfigStore(join(dir, 'config.json'));
+  // 카메라의 정본은 DB 다. config.json 의 cameras[] 는 load() 가 1회 이관하고 파일에서 지운다 —
+  // 그래서 하네스는 예전처럼 config 에 카메라를 적어 두면 되고, 이관 경로도 매번 검증된다.
+  const db = openDatabase({ path: ':memory:' });
+  const configStore = new ConfigStore(join(dir, 'config.json'), db);
   await configStore.load();
   const presetStore = new PresetStore(join(dir, 'presets.json'), () => '2026-08-05T00:00:00.000Z');
   await presetStore.load();
@@ -98,7 +102,7 @@ beforeEach(async () => {
   await devicePresetRegistryStore.load();
 
   server = createServer({
-    configStore, presetStore, slotStore, devicePresetRegistryStore, fetchImpl: fakeFetch, settleOptions: { sleep: async () => {} },
+    configStore, presetStore, slotStore, devicePresetRegistryStore, db, fetchImpl: fakeFetch, settleOptions: { sleep: async () => {} },
     // 대조군(hucoms cam-a)용. park3d-rpc 는 kind 가드에 먼저 걸려 이 팩토리에 닿지도 않는다는 것이
     // 아래 `장비 프리셋은 자동 배제된다` 의 요지다(server.test.ts 의 주입 패턴을 복제).
     directPresetClientFactory: () => ({
@@ -149,8 +153,8 @@ describe('park3d-rpc — 코어 능력 광고 (설계 6단계 검증 3)', () => 
 });
 
 describe('park3d-rpc — camId 가 설정에서 RPC params 까지 끊기지 않고 도달한다', () => {
-  it('연결 테스트(POST /api/cameras/sim-2/test)가 raw 로 환산된 PTZ 를 돌려준다', async () => {
-    const { status, body } = await api('/api/cameras/sim-2/test', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  it('연결 테스트(POST /api/db/cameras/1/test)가 raw 로 환산된 PTZ 를 돌려준다', async () => {
+    const { status, body } = await api('/api/db/cameras/1/test', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     expect(status).toBe(200);
     expect(body.ok).toBe(true);
     expect(body.kind).toBe('park3d-rpc');
@@ -181,10 +185,10 @@ describe('park3d-rpc — camId 가 설정에서 RPC params 까지 끊기지 않�
     await api('/api/settings', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ cameras: [{ id: 'sim-2', camId: 0 }] }),
+      body: JSON.stringify({ park3d_cam_id: 0 }),
     });
     rpcCalls = [];
-    const { body } = await api('/api/cameras/sim-2/test', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    const { body } = await api('/api/db/cameras/1/test', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     expect(body.ok).toBe(false);
     expect(body.error).toContain('camId');
     expect(rpcCalls).toHaveLength(0);
@@ -200,14 +204,14 @@ describe('park3d-rpc — 설정 공개 표면 (설계 3단계 검증 5·6)', () 
     expect(sim.kind).toBe('park3d-rpc');
     expect(cam).not.toHaveProperty('camId');
     // camId 가 없는 카메라의 키 집합은 넓어지지 않았다(server.test.ts:154 와 같은 계약).
-    expect(Object.keys(cam).sort()).toEqual(['controlUrl', 'hasPassword', 'id', 'kind', 'label', 'streamUrl', 'timeoutMs', 'username']);
+    expect(Object.keys(cam).sort()).toEqual(['controlUrl', 'hasPassword', 'id', 'kind', 'label', 'place_id', 'streamUrl', 'timeoutMs', 'username']);
   });
 
-  it('PUT /api/settings 왕복에서 kind 와 camId 가 살아남는다', async () => {
+  it('PUT /api/db/cameras 왕복에서 kind 와 camId 가 살아남는다', async () => {
     const { status } = await api('/api/settings', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ cameras: [{ id: 'sim-2', label: '이름만 바꿈' }] }),
+      body: JSON.stringify({ cam_name: '이름만 바꿈' }),
     });
     expect(status).toBe(200);
     const { body } = await api('/api/settings');

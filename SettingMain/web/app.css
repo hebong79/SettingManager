@@ -231,3 +231,96 @@ td.num { font-variant-numeric: tabular-nums; }
 #status.show { opacity: 1; }
 #status.ok { border-color: var(--ok); color: var(--ok); }
 #status.err { border-color: var(--err); color: var(--err); }
+
+/* --- 옵션 서브탭 --------------------------------------------------------
+   색은 전부 :root 변수에서 온다. 여기에 색을 박아 넣었더니 배경만 밝아지고 글자색은
+   전역 button 규칙의 밝은 --text 를 그대로 물려받아 **밝은 글자 위 밝은 배경**이 됐다.
+   탭은 카드 위에 얹힌 종이라, 선택된 것만 카드와 같은 --panel 로 이어 붙인다. */
+.tabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: -1px;      /* 선택된 탭이 아래 카드와 한 장으로 이어지게 겹친다 */
+  position: relative;
+  z-index: 1;
+}
+.tabs button {
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-bottom-color: transparent;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: var(--panel-2);
+  color: var(--muted);
+}
+.tabs button:hover:not(.active) { color: var(--text); border-color: var(--accent); border-bottom-color: transparent; }
+.tabs button.active {
+  background: var(--panel);
+  color: var(--text);
+  font-weight: 600;
+  border-top: 2px solid var(--accent);
+  padding-top: 7px;         /* 위 테두리가 1px 두꺼워진 만큼 덜어 높이를 맞춘다 */
+}
+
+/* --- DB 표 -------------------------------------------------------------- */
+table.grid {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--text);
+}
+table.grid th,
+table.grid td {
+  border: 1px solid var(--line);
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: middle;
+}
+table.grid th {
+  background: var(--panel-2);
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
+  position: sticky;         /* 줄이 많아도 열 이름이 따라온다 */
+  top: 0;
+  z-index: 1;
+}
+/* 값이 길어도 표가 가로로 폭발하지 않게 자른다 — 전문은 셀 title(툴팁)로 본다. */
+table.grid td {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 홀짝 줄무늬는 배경을 아주 조금만 들어 올린다 — 어두운 판에서 큰 대비는 눈이 아프다. */
+table.grid tbody tr:nth-child(even) { background: rgba(255, 255, 255, .025); }
+table.grid tbody tr:hover { background: rgba(59, 130, 246, .10); }
+
+/* 표 안의 입력칸은 칸 자체처럼 보이게 한다 — 테두리가 겹쳐 보이면 격자가 두 겹이 된다. */
+table.grid input,
+table.grid select {
+  width: 100%;
+  padding: 4px 6px;
+  background: transparent;
+  border-color: transparent;
+  border-radius: 4px;
+}
+table.grid input:hover,
+table.grid select:hover { border-color: var(--line); background: var(--bg); }
+table.grid input:focus,
+table.grid select:focus { background: var(--bg); }
+/* 콤보는 화살표가 있어야 고를 수 있는 칸임을 알 수 있다. */
+table.grid select { appearance: auto; color: var(--text); }
+table.grid select option { background: var(--panel); color: var(--text); }
+
+table.grid td.actions { white-space: nowrap; width: 1%; }
+table.grid td.actions button { padding: 4px 10px; font-size: 12px; }
+table.grid td.actions button:hover:not(:disabled) { border-color: var(--err); color: var(--err); }
+
+.table-scroll { overflow-x: auto; max-height: 62vh; overflow-y: auto; }
+.muted { color: var(--muted); }
+
+/* 옵션 화면은 DB 표(최대 7열) 때문에 폭이 더 필요하다. 다만 **서비스 설정 탭은 그대로 둔다** —
+   입력칸이 화면 폭만큼 늘어나면 읽기 어렵다는 main.narrow 의 이유가 그쪽에는 그대로 유효하다. */
+main.narrow.options { max-width: 1180px; }
+main.narrow.options #panelService { max-width: 660px; }

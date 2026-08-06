@@ -23,15 +23,12 @@ export type CoreProviderName = 'remote' | 'bridge';
 
 /**
  * 코어가 할 수 있는 일의 이름표. 구성도(`docs/my_think/my_setting_manager_구성.md`)의
- * Backend-Core·Bridge 하위 항목 5종이 여기 다 들어와 있다.
+ * Backend-Core·Bridge 하위 항목 5종이 여기 다 들어와 있고, **여덟 개 모두 실행 표면(포트)을
+ * 갖는다.**
  *
- * 뒤의 둘(`vehicleBox`·`slotCreate`)은 **아직 실행 표면(포트)이 없다.** 요청·응답 모양이
- * 확정되지 않았기 때문이며, 지어낸 시그니처를 먼저 만들면 실측과 어긋났을 때 소비자까지
- * 전부 다시 깎아야 한다. 이름만 먼저 세워 두면 `GET /api/core/capabilities` 가
- * "그 둘은 아직 아무도 못 한다"를 **사유와 함께** 답할 수 있다 — 화면은 없는 기능을
- * 있는 것처럼 그리지 않고, 조용한 실패도 생기지 않는다.
- * 포트가 생기는 시점에 `test/coreProviderConformance.ts` 의 `INVOKE` 에 실행 프로브를 추가한다
- * (빠뜨리면 같은 파일의 검사가 잡아낸다).
+ * `vehicleBox`·`slotCreate` 는 한동안 이름만 있었다 — 요청·응답 모양을 몰랐기 때문이다.
+ * baro_calory 소스에서 실제 계약을 확인해(`POST /api/discovery/object3d`, `/api/spots`)
+ * 포트를 세웠다. 지어낸 시그니처가 아니라 **상류 라우트에서 읽어 온 모양**이다.
  */
 export const CORE_CAPABILITY_NAMES = [
   'center',
@@ -142,6 +139,72 @@ export interface DiscoveryPresetPort {
   goto(ctx: CoreContext, presetId: string): Promise<{ preset: DiscoveryPreset; ptz?: PtzView }>;
 }
 
+// --- 차량 3D 육면체 -----------------------------------------------------------------
+//
+// 근거: baro_calory `apps/backend-core/src/control-api.mjs:530-604` (`POST /api/discovery/object3d`).
+// 봉투(`cameraId`·`capturedAt`·`count`·`model`·`latencyMs`)는 **우리 어휘**이고,
+// `detections[]`·`calibration` 은 **사이드카 어휘 그대로** 통과시킨다 — 상류가 그렇게 정했고,
+// 측정값을 개명하면 사이드카 로그와 대조가 안 되고 좌표계 규약이 두 벌이 된다.
+
+/** 검출 1건. 필드 이름은 추론 사이드카의 것이다(`position_m`·`dimensions_m`·`yaw` 등). */
+export type VehicleBoxDetection = Record<string, unknown>;
+
+export interface VehicleBoxResult {
+  cameraId: string;
+  capturedAt: string;
+  count: number;
+  detections: VehicleBoxDetection[];
+  [extra: string]: unknown;
+}
+
+/** 지금 답할 수 있는가. 사이드카가 죽어 있어도 **오류가 아니라 사실**로 답한다. */
+export interface VehicleBoxStatus {
+  configured: boolean;
+  ready: boolean;
+  [extra: string]: unknown;
+}
+
+export interface VehicleBoxPort {
+  status(ctx: CoreContext): Promise<VehicleBoxStatus>;
+  /** 지금 프레임의 차량마다 3D 큐보이드. **카메라를 움직이지 않는다.** */
+  detect(ctx: CoreContext): Promise<VehicleBoxResult>;
+}
+
+// --- 주차면(커미셔닝 스팟) ------------------------------------------------------------
+//
+// 근거: baro_calory `control-api.mjs:485-520` + `spot-store.mjs`.
+// `GET /api/slots`(시뮬·로컬 주차면 **목록**)와는 다른 개념이다 — 이쪽은 "이 픽셀을 이 자세로
+// 찍는다"를 사람이 확정해 저장한 것이라, 경로도 `/api/core/slots` 로 갈라 둔다.
+
+export interface ParkingSlot {
+  id: string;
+  name: string;
+  /** 와이드 구도에서 사람이 찍은 픽셀(1920×1080 논리 프레임). */
+  markedPixel: { x: number; y: number };
+  /**
+   * 저장 당시의 카메라 자세. 이 자리로 돌아가는 근거다.
+   * **모양을 못 박지 않는다** — 브리지는 backend-core 파일 형식(`panpos`…)으로 쓰고 원격은
+   * 그쪽이 준 것을 그대로 통과시킨다. 계약이 읽는 것은 "있다/없다"뿐이다.
+   */
+  closeupPtz?: unknown;
+  [extra: string]: unknown;
+}
+
+export interface SlotCreateInput {
+  x: number;
+  y: number;
+  name?: string;
+  box?: unknown;
+}
+
+export interface ParkingSlotPort {
+  list(ctx: CoreContext): Promise<{ slots: ParkingSlot[]; [extra: string]: unknown }>;
+  /** 현재 자세를 그 주차면의 클로즈업으로 삼아 저장한다. */
+  create(ctx: CoreContext, input: SlotCreateInput): Promise<{ slot: ParkingSlot }>;
+  goto(ctx: CoreContext, slotId: string): Promise<{ slot: ParkingSlot; ptz?: PtzView }>;
+  remove(ctx: CoreContext, slotId: string): Promise<{ removed: string }>;
+}
+
 export interface DiscoveryPointPort {
   list(ctx: CoreContext, presetId: string): Promise<{ points: DiscoveryPoint[] }>;
   create(ctx: CoreContext, presetId: string, body: Record<string, unknown>): Promise<Record<string, unknown>>;
@@ -165,6 +228,8 @@ export interface CoreProvider {
   readonly discoveryPoints: DiscoveryPointPort;
   readonly calibration: JobPort<CalibrationStartOptions>;
   readonly plateHoming: JobPort<PlateHomingStartOptions>;
+  readonly vehicleBox: VehicleBoxPort;
+  readonly parkingSlots: ParkingSlotPort;
 }
 
 /**
@@ -178,6 +243,18 @@ export class CoreUnsupportedError extends Error {
   constructor(readonly capability: CoreCapabilityName, reason: string) {
     super(reason);
     this.name = 'CoreUnsupportedError';
+  }
+}
+
+/**
+ * 가리킨 것이 저장소에 없다. **501 과 구분해야 한다** — 501 은 "이 구현이 그 일을 하지 않는다",
+ * 이쪽은 "그 일은 하는데 그 id 가 없다"다. 뭉개면 화면이 기능을 껐다 켰다 한다.
+ */
+export class CoreNotFoundError extends Error {
+  readonly statusCode = 404;
+  constructor(what: string, readonly id: string) {
+    super(`${what}을(를) 찾을 수 없습니다: ${id}`);
+    this.name = 'CoreNotFoundError';
   }
 }
 

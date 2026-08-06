@@ -1,163 +1,198 @@
-# 02 구현 결과 — Park3D RPC 카메라 드라이버(`kind: "park3d-rpc"`)
+# 02. 구현 — 1단계 (스키마 판 올림 + 마이그레이션 실행 보장 + 열기 시점 대조)
 
-- 작성: 구현자(developer)
-- 입력: `_workspace/01_architect_plan.md` **2판** + 리더 지시(설계서보다 우선)
-- 범위: 설계서 1~6단계 전부
+작성 2026-08-06 / 대상 `d:\Work\Parking3D\Agent\baro\SettingManager`
+구현 범위는 계획서 「1단계」뿐이다. 2단계(테스트)·3단계(운영 DB 복구)는 손대지 않았다.
 
 ---
 
-## 리더 지시 반영 (설계서와 다른 점)
+## ⚠️ 먼저 읽을 것 — 운영 DB 가 **이미 마이그레이션되었다** (계획 3-2 백업 없이)
 
-| # | 지시 | 반영 |
+**개발 서버가 `nodemon --watch src` 로 돌고 있어서, 내가 `src/db/*.ts` 를 저장한 순간 서버가
+스스로 재기동했고 그 기동이 `openDatabase()` → `migrate()` 를 태웠다.** 즉 계획 3-4 가
+3-2(백업)·3-3(테스트 통과)보다 먼저 일어났다. 의도한 것이 아니고, 내가 DB 나 서버에 직접
+명령한 것도 아니다 — 파일 저장의 부수 효과다.
+
+실측 상태(읽기 전용으로 확인, 2026-08-06 12:10 기준):
+
+| 항목 | 값 |
+|---|---|
+| `PRAGMA user_version` | **3** |
+| `camera_info` | **14열** (`…, place_id, timeout_ms, kind, park3d_cam_id, intrinsics`) |
+| cam 1 real-camera-1 | `kind=hucoms`, `timeout_ms=5000`, `park3d_cam_id=NULL`, `intrinsics=NULL` |
+| cam 2 real-camera-2 | `kind=hucoms` ← **아직 `backend-core` 로 고쳐야 한다(계획 3-5)** |
+| cam 3 simulator-1 | `kind=hucoms`, `timeout_ms=5000` |
+| cam 4 simulator-2 | `kind=hucoms`, `timeout_ms=5000` |
+| 서버 | `:13030` 살아 있음(`/api/health` 200). `/api/settings` 의 카메라에 `kind`·`timeoutMs` 가 값으로 나온다 |
+
+**잃은 것은 없다.** `ALTER TABLE ADD COLUMN` 은 기존 줄을 건드리지 않으므로 옛 10열의 값은
+그대로고, 복구 근거인 `config/config.json.bak-cameras`(8/5 23:25)도 손대지 않았다. 다만
+**계획이 요구한 사전 백업(3-2)이 없는 상태**이므로, 리더는 지금이라도 서버를 정지시킨 뒤
+세 파일(`setup.db`·`-wal`·`-shm`)을 백업하고 **3-5(`PUT /api/db/cameras/2` 로 `kind` 를
+`backend-core`)만 남은 것으로 보고 진행하면 된다.** 3-4 는 사실상 끝났다.
+
+---
+
+## 바꾼 파일
+
+### 1. `SettingMain/src/db/schema.ts` (1-1)
+
+- `SCHEMA_VERSION` **2 → 3**.
+- 머리말 주석에 두 줄을 덧붙였다 — "판을 올리는 규율"은 그대로 두되, **잊어도 여는 시점의
+  대조가 잡는다**는 사실과 그 함수 이름(`database.ts` 의 `verifySchema`)을 적었다. 규율만 적어
+  두었다가 이번에 실패했으므로, 안전망이 어디 있는지 읽는 사람이 바로 찾을 수 있어야 한다.
+
+그 밖의 `SCHEMA_SQL` 본문은 **한 글자도 건드리지 않았다**(계획 비범위).
+
+### 2. `SettingMain/src/db/database.ts` (1-2, 1-3)
+
+**(가) `migrate()` 구조 변경 (1-2)**
+
+- `if (current === SCHEMA_VERSION) return;` **조기 반환을 없앴다.** 대신 판 올리기 전체를
+  `if (current < SCHEMA_VERSION) { … }` 블록으로 감쌌다.
+- `current > SCHEMA_VERSION` 던지기는 **문구·위치·조건 모두 그대로**다.
+- 블록 안 `if (current >= 1) upgradeToV2(db);` → **`upgradeToV2(db);` 무조건 호출**.
+- 블록 끝난 **뒤에, 판을 올렸든 안 올렸든 `verifySchema(db)` 를 항상 부른다.**
+- 주석: "지금은 초판뿐이라 …" → "판이 뒤처진 파일만 손대고, 마지막에 언제나 대조로 확인한다".
+  블록 안 주석에 **"판 번호로 분기하지 않는다 — 판 번호로 갈랐던 자리가 바로 v2 열 넷을 통째로
+  빠뜨린 자리다"** 를 더했다(이 버그의 교훈이 코드 옆에 남아 있어야 다음 사람이 되돌리지 않는다).
+
+**(나) `upgradeToV2()` 머리말 주석 갱신 (1-2)**
+
+- "v1 → v2:" 라는 판 번호 표현을 지우고, **"어느 옛 판에서 올라와도 멱등하다 — 판 번호가 아니라
+  열이 있는지로 판단한다"** 로 바꿨다. 본문(ADD COLUMN·CHECK 설명)은 그대로다.
+- **함수 이름은 `upgradeToV2` 그대로 두었다.** 계획이 요구한 것은 표현 갱신이지 개명이 아니고,
+  하는 일(“v2 에서 더해진 열 넷을 채운다”)은 이름과 여전히 맞다. 외과적 변경 원칙(CLAUDE.md 3번).
+
+**(다) 열기 시점 스키마 대조 `verifySchema()` 추가 (1-3)**
+
+`database.ts` 안의 **비공개** 함수다(내보내지 않는다). 보조로 `schemaObjectsOf()`(비공개)와
+`SchemaObject` 인터페이스가 붙는다 — 같은 뽑기를 기준 DB 와 실제 DB **두 번** 하므로,
+그 자리에 코드를 두 벌 복사하는 것보다 함수 하나가 짧고 어긋날 데가 없다.
+
+---
+
+## 대조 함수의 동작 요약
+
+| 축 | 내용 |
+|---|---|
+| **기대** | `:memory:` 에 **`SCHEMA_SQL` 만** 실행한 일회용 기준 DB. 즉 "코드가 만들려던 모습"을 SQLite 가 스스로 답하게 한다. 기대 목록을 사람이 적지 않으므로 목록이 낡을 수 없다 |
+| **실제** | 지금 연 DB(파일이든 메모리든) |
+| **뽑는 것** | 양쪽에서 `SELECT name, type FROM sqlite_master WHERE type IN ('table','view')` + 각각의 `PRAGMA table_info` 열 이름 |
+| **문제 삼는 방향** | **기대에 있는데 실제에 없는 것만.** 없는 표/뷰 → `preset_info 표가 없습니다` · `floor_ROI 뷰가 없습니다`. 표는 있는데 없는 열 → `camera_info 에 kind, timeout_ms 가 없습니다` |
+| **무시하는 방향** | **실제에만 있는 여분의 표·열은 보지 않는다.** 앞선 판이 연 파일은 `user_version` 검사가 이미 막고, 그 밖의 여분은 우리 코드가 읽지 않는다 |
+| **던지는 것** | `DatabaseError`(기본 statusCode 500). 메시지 = `DB 스키마가 코드의 기대와 다릅니다 — ` + 어긋남들을 `; ` 로 이은 문장. **이름을 그대로 싣는다** |
+| **고치지 않는다** | 검사만 한다. 자동 보정을 넣으면 "무엇이 왜 어긋났나"를 아무도 안 보게 되고 대조가 두 번째 마이그레이션 엔진이 된다(계획 1-3의 역할 분담) |
+| **부르는 자리** | `migrate()` 의 맨 끝, **항상**. 판이 이미 최신이라 판 올리기를 통째로 건너뛴 파일이 이번 사고의 모습이었다 |
+| **핸들** | 기준 DB 는 `try/finally` 로 **반드시 닫는다**. `finally` 안에 `close()` 를 두어 `SCHEMA_SQL` 이 던져도 새지 않는다 |
+
+### 뷰와 SQLite 내부 표 (계획이 확인하라고 한 부분)
+
+- **뷰 `floor_ROI` 는 대조 대상에 포함한다.** `sqlite_master` 를 `type IN ('table','view')` 로
+  받고, `PRAGMA table_info` 는 뷰에도 동작해 **뽑는 열 이름**을 준다. 즉 뷰가 통째로 없는 것도,
+  뷰가 내놓는 열이 줄어든 것도 잡힌다. 메시지에서는 `표`/`뷰` 를 구분해 적는다(`type` 으로 판별).
+- **`sqlite_sequence` 는 양쪽 모두에서 뺀다** (`AND name NOT LIKE 'sqlite_%'`). 실측 확인:
+  `AUTOINCREMENT` 표(`preset_info`·`parking_evnt`)를 만들면 SQLite 가 `sqlite_sequence` 를
+  **표로** 만들고, 그것이 `sqlite_master` 에 그대로 나온다. 기준 DB 에는 `SCHEMA_SQL` 을 태우니
+  항상 생기지만, **실제 쪽에는 없을 수 있다** — 예컨대 2단계 2-7 이 만들 "preset_info 가 없는
+  픽스처"에는 AUTOINCREMENT 표가 하나도 없어 `sqlite_sequence` 도 없다. 그 상태에서 걸러 내지
+  않으면 **기대에만 있고 실제엔 없는** 꼴이 되어 진짜 문제(없는 표) 옆에 거짓 경보가 한 줄 더
+  붙는다. 우리 의도(`SCHEMA_SQL`)가 아니라 SQLite 의 장부이므로 양쪽에서 뺐다.
+
+---
+
+## 계획과 다르게 한 것
+
+1. **`upgradeToV2` 를 개명하지 않았다.** 위 (나) 참조. 계획은 주석 표현 갱신만 요구했고,
+   개명은 계획에 없는 변경이라 하지 않았다.
+2. **보조 함수가 하나 늘었다**(`schemaObjectsOf`). 계획은 "비공개 함수 하나(약 25줄)"라고 했다.
+   같은 뽑기를 기준·실제 두 DB 에 해야 해서, 한 함수 안에 두 벌 복사하는 쪽이 더 길고 어긋나기
+   쉬웠다. 실제 크기는 주석 제외 **약 35줄**이다. 프레임워크를 만들지 않았고 파일 밖으로
+   내보내지도 않았다 — 계획의 취지(작고 닫힌 안전망) 안에 있다고 판단했다.
+
+그 밖에 계획과 다른 점은 없다. **테스트는 쓰지 않았고**(2단계), 운영 DB 에 명령을 보내지
+않았으며(3단계), 서버를 죽이지 않았다.
+
+---
+
+## 실제 실행 결과
+
+### `npm run typecheck` — **통과**
+
+```
+> settingmanager@0.1.0 typecheck
+> tsc -p tsconfig.json --noEmit
+```
+출력 없음(오류 0). `any` 로 덮거나 `@ts-ignore` 를 쓴 자리는 없다.
+
+### `npm run test` — **20 실패 / 469 통과 (489), 3 파일 실패 / 30 통과 (33)**
+
+```
+ Test Files  3 failed | 30 passed (33)
+      Tests  20 failed | 469 passed (489)
+```
+
+**이 20건은 전부 내 변경 이전부터 실패하던 것이다 — 대조로 확인했다.** 작업 트리를 건드리면
+(nodemon 이 물고 있으므로) 서버가 옛 코드로 재기동해 `user_version=3` 파일을 열다 죽는다.
+그래서 `git stash` 대신 **트리 전체를 스크래치패드로 복사한 뒤 그 사본에서만 내 두 파일을
+변경 전 내용으로 되돌려** vitest 를 돌렸다.
+
+| | Test Files | Tests |
 |---|---|---|
-| 1 | `label` 변경 취소 | `config.json` 의 `simulator-2.label` 은 **`"UE-시뮬2"` 그대로**. 설계서 4단계의 `"Park3D 시뮬2 (RPC)"` 로의 변경은 **하지 않았다**. 바꾼 것은 `kind`·`streamUrl`·`camId` 셋뿐 |
-| 2 | 컴파일 확인은 필수 | `npm run typecheck` 통과 확인(아래 실행 결과) |
-| 3 | 기존 red 1건은 범위 밖 | `test/powershellSafeDiagnostic.test.ts` 는 **손대지 않았다** |
-| 4 | 금지 파일 불가침 | `test/server.test.ts`·`toPublicCamera`·`mergeSettings`·`src/domain/ptz.ts`·PTZ 라우트·`web/control.js` **한 줄도 변경 없음** |
-| 5 | 인증 코드 전면 금지 | `token` 필드·`PARK3D_RPC_TOKEN`·`X-Park3D-Token` 어디에도 **없음**. 오히려 "되살아나지 않는다"를 테스트로 고정 |
+| 변경 전(사본) | 3 failed / 30 passed | **20 failed / 469 passed** |
+| 변경 후(현재) | 3 failed / 30 passed | **20 failed / 469 passed** |
 
----
+실패 목록도 **한 건도 다르지 않다**:
 
-## 파일별 변경 요약
+- `test/server.test.ts` 17건 — 기기 추가·삭제, 연결 테스트, 옵션 페이지 저장, 요청 본문 인코딩,
+  `/options` 정적 파일. 예: `expect(html).toContain('id="cameraSelect"')` 가 지금의
+  `web/options.html` 에 없어서 실패한다.
+- `test/park3dRpcServerRoutes.test.ts` 2건 — `POST /api/db/cameras/1/test` 가 `ok:false` 를
+  기대하는데 `ok:true`, `PUT /api/db/cameras` 왕복에서 `label` 이 안 바뀐다.
+- `test/powershellSafeDiagnostic.test.ts` 1건.
 
-### 신규
+원인은 **작업 트리에 커밋되지 않은 다른 진행 중 작업**(git status 상 `web/options.html`,
+`src/api/routes/*` 등이 수정·미추적 상태)이지 이번 DB 변경이 아니다. 이번 변경과 가장 가까운
+`test/database.test.ts`·`test/dbRoutes.test.ts`·`test/bridgeStores.test.ts` 는 **전부 통과**한다
+(판을 3 으로 올렸는데도 기존 `SCHEMA_VERSION + 1` 거절 테스트가 상수를 따라가므로 그대로 통과).
 
-**`SettingMain/src/devices/park3d/park3dRpcClient.ts`** — Park3D JSON-RPC 드라이버(설계 1단계)
+**이 20건은 이번 1단계에서 고치지 않는다** — 계획 비범위이고 원인이 다른 작업에 있다.
+리더 판단이 필요하다.
 
-- `implements CameraDriver`, `readonly kind = 'park3d-rpc'`
-- 옵션: `{ cameraId, baseUrl, camId?, timeoutMs, fetchImpl? }` — **token 필드 없음**
-- `callRpc(method, params)` (private): `POST {baseUrl}/rpc`, 본문 `{jsonrpc:'2.0', id:1, method, params}`,
-  헤더는 `content-type: application/json` **하나뿐**, 타임아웃은 `AbortSignal.timeout(timeoutMs)`.
-  본문을 `text()` 로 **1회만** 읽고 분기 순서를 설계대로 지켰다:
-  ① JSON 파싱 실패 → 원문 200자 → ② `body.error` → `Park3D RPC 오류 [code]: message` → ③ `!res.ok` → `HTTP {status}` + 원문 200자 → ④ `body.result`.
-  순서가 뒤집히면 404 본문이 `result: undefined` 로 조용히 통과해 먼 곳에서 TypeError 로 터진다(형제 프로젝트 사고 기록).
-- `getPtz()`: `cam.getPTZ {camId}` → `pan/tilt/zoom`(도·배율 실수) → `Math.round(v*100)` 으로 raw 환산.
-  세 값 중 하나라도 `typeof !== 'number'` 이거나 유한수가 아니면 `CameraDriverError`(조용한 0 폴백 금지).
-- `goPtz(target, _speed?)`: `clampPtz(target)` → zoom raw 만 **100~3600 자체 클램프** → `/100` 해서 `cam.setPTZ {camId,pan,tilt,zoom}`.
-  `speed` 는 **무시**(Park3D 계약에 속도 파라미터 없음 — 주석 명시).
-- `getSnapshot()`: `cam.captureJPG {camId}` → `img_bytes` base64 디코드 → **JPEG SOI(`FF D8`) 검증**.
-- `listSlots()` → `[]`. `centerPoint` 는 **구현하지 않음**(속성 자체가 없다).
-- `requireCamId()`: 양의 정수가 아니면 **400** 으로 던지고 `fetch` 를 부르지 않는다.
-- 마스킹 로직 없음(감출 비밀이 없다). 오류 문구에는 `url`·`method`·서버 원문 200자만 싣는다.
+### 임시 동작 확인 (테스트 파일을 만들지 않고, 임시 DB 로만)
 
-**`SettingMain/test/park3dRpcClient.test.ts`** — 모킹 유닛테스트 20건.
-설계 1단계 검증 1~11 전부 + `createDriver` 분기(2단계 검증 2) + LocalCore `center` 능력 자동 미지원(6단계 검증 3).
-모킹 응답은 리더 실측 원문 `{"result":{"pan":41.5,"tilt":20.100000381469727,"zoom":1.5799099206924438}}` 을 상수로 박아 두고 근거를 파일 머리 주석에 남겼다.
+2단계 전에 새 코드가 실제로 도는지만 확인했다(스크래치패드의 일회용 스크립트, **저장소에 남기지
+않았고 운영 DB 를 열지 않았다**). 결과:
 
-**`SettingMain/test/optionsPark3dUi.test.ts`** — 옵션 UI 검사 5건.
-`web/options.js` 는 브라우저 모듈이라 통째로 import 할 수 없어, 소스 문자열 검사(기존 `optionsDiscoveryBackendCoreUi.test.ts` 패턴)에 더해
-**순수 함수 `portPairWarning` 의 본문만 떼어 `new Function` 으로 실제 평가**했다(설계 5단계 검증 3의 "가능하면" 조건을 충족).
-문자열 존재만 보면 조건이 뒤집혀 있어도 통과하기 때문이다.
-
-### 수정
-
-| 파일 | 변경 |
+| 경우 | 결과 |
 |---|---|
-| `src/config/types.ts` | `CameraKind` 에 `'park3d-rpc'` 추가 + 주석(Hucoms CGI 가 아님). `CameraConfig.camId?: number`(1-based) 추가. `PublicCamera`·`CameraPatch` 정의는 불변 |
-| `src/config/normalize.ts` | `CAMERA_KINDS` 에 `'park3d-rpc'` 추가. `positiveInt()` 헬퍼 신설 후 `normalizeCamera` 가 **유효할 때만** `camId` 를 싣는다(스프레드 조건부). `toPublicCamera`·`mergeSettings` **불변** |
-| `src/devices/driverFactory.ts` | `import { Park3DRpcClient }` + `case 'park3d-rpc'`. `token` 은 넘기지 않는다(필드가 없다) |
-| `config/config.json` | `simulator-2`: `kind` → `park3d-rpc`, `streamUrl` → `.../stream`, `camId: 1` 추가. **`label`·`controlUrl` 그대로**. 다른 3대 불변 |
-| `config/config.example.json` | `park3d-rpc` 예시 1건 추가(`_comment` 로 무인증·같은 포트·camId 1-based 설명). 기존 3건 불변 |
-| `web/options.js` | `portPairWarning(controlUrl, streamUrl, kind)` 3번째 인자 + `kind === 'park3d-rpc'` 조기 반환. `applyStreamHint()` 가 `selected()?.kind` 를 읽어 넘기고, http 안내 문구를 이 kind 에서만 교체. **다른 kind 의 경고 로직은 불변** |
-| `test/normalize.test.ts` | `describe('park3d-rpc 카메라')` 7건 추가. 기존 테스트는 불변 |
-
----
-
-## 설계와 달라진 점과 사유
-
-1. **`label` 유지** — 리더 지시 1(CLAUDE.md 3항). 위 표 참조.
-2. **설계 3단계 검증 5·6(`PUT /api/settings` 왕복, `/api/settings` 응답의 `camId`)을 HTTP 대신 순수 계층에서 검증** —
-   해당 검증은 `test/server.test.ts` 의 하네스가 필요한데 그 파일은 불가침이다. 대신 같은 경계를
-   `mergeSettings`(저장 왕복에서 `kind`·`camId` 유지)와 `toPublicCamera`(값이 있는 카메라에만 `camId` 노출, 없으면 키 없음)로 `test/normalize.test.ts` 에서 검사했다.
-   **키 집합 회귀 여부는 `test/server.test.ts:154` 가 이미 그대로 지키고 있고, 실행 결과 그린이다.**
-3. **설계 4단계의 모킹 검증(정정된 `config.json` → `normalizeConfig`, `streamTransportFor`)을 커밋된 테스트로 만들지 않았다** —
-   `config.json` 은 `.gitignore` 대상이라 이를 읽는 테스트는 다른 사람의 클론에서 ENOENT 로 깨진다.
-   대신 **일회성 스크립트로 실제 실행해 확인**했다(아래 실행 결과). `streamTransportFor` 의 `http://` → `http-mjpeg` 규칙 자체는 `test/stream.test.ts` 가 이미 덮는다.
-4. **설계 6단계 검증 2(`GET /api/device-preset-capability` → 501)는 테스트를 만들지 않았다** —
-   서버 하네스가 필요하고 그 파일이 불가침이다. 코드상 근거는 `src/api/routes/devicePresetRoutes.ts:23,34` 의 `camera.kind !== 'hucoms'` 가드이며,
-   `park3d-rpc` 는 여기에 걸려 자동으로 501 이 된다(코드 변경 없음). **qa-tester 가 필요하다고 보면 이 항목만 별도 파일로 추가해 달라.**
-
----
-
-## 확인 필요 항목의 해소
-
-| 설계서 항목 | 결과 |
-|---|---|
-| `cam.captureJPG` 의 base64 가 `data:` 접두 없는 순수 base64인가 | **해소.** 실기 읽기 호출로 99,237 바이트 디코드 성공, 첫 두 바이트 `ff d8`. 순수 base64가 맞다 |
-| zoom raw 100~3600 을 서버가 어떻게 다루는가 | **미해소(유지).** 확인하려면 `cam.setPTZ` 로 카메라를 움직여야 한다 — 지시대로 호출하지 않았다. 드라이버는 자체 클램프만 하고 서버 거부는 그대로 전달한다 |
-| 가정 B (`cam.setPTZ` 파라미터·응답) | **미확인(유지).** 실기 이동은 리더가 사용자 승인 아래 수행 |
+| 10열 옛 파일 + `user_version=2` 를 `openDatabase()` | 14열로 보강, `user_version=3`, 기존 행 보존(`{"cam_uuid":"real-camera-1","url":"http://x","kind":"hucoms","timeout_ms":5000}`) |
+| 같은 파일 다시 열기(멱등) | 던지지 않음, 14열 그대로 |
+| 새 빈 파일 | 14열, `user_version=3` |
+| `place_info` 만 있고 `user_version=3` 으로 위조 | `DatabaseError: DB 스키마가 코드의 기대와 다릅니다 — camera_info 표가 없습니다; preset_info 표가 없습니다; slot_setup 표가 없습니다; floor_ROI 뷰가 없습니다; parking_slot 표가 없습니다; parking_evnt 표가 없습니다` |
+| 14열 DB 에서 `ALTER TABLE camera_info DROP COLUMN park3d_cam_id` 후 `migrate()` | `DatabaseError: DB 스키마가 코드의 기대와 다릅니다 — camera_info 에 park3d_cam_id 가 없습니다` |
 
 ---
 
 ## 검증자(qa-tester)가 알아야 할 경계면
 
-```ts
-// src/devices/park3d/park3dRpcClient.ts
-export interface Park3DRpcClientOptions {
-  cameraId: string; baseUrl: string; camId?: number; timeoutMs: number; fetchImpl?: typeof fetch;
-}
-class Park3DRpcClient implements CameraDriver {
-  readonly kind = 'park3d-rpc';
-  getPtz(): Promise<PtzRaw>;                       // raw 정수 (pan/tilt centi-deg, zoom 배율×100)
-  goPtz(target: PtzRaw, _speed?: number): Promise<void>;  // speed 무시
-  getSnapshot(): Promise<Buffer>;
-  listSlots(): Promise<Slot[]>;                    // 항상 []
-  // centerPoint 없음 (속성 자체가 없다)
-}
-```
-
-- **전송 형태**: `POST {baseUrl}/rpc`, headers `{'content-type':'application/json'}` **단 하나**, body `{jsonrpc:'2.0', id:1, method, params}`.
-- **오류**: 전부 `CameraDriverError`. 연결 실패 `502`, `camId` 미설정 `400`, 나머지(RPC error 봉투·non-2xx·파싱 실패) 기본 `502`.
-- **환산**: `4150 ↔ 41.5°`, `2010 ↔ 20.1°`, `158 ↔ 1.58배`. zoom raw 클램프 `[100, 3600]` 은 **드라이버 내부에만** 있다(공유 `ZOOM_RANGE` 불변).
-- **설정 스키마**: `camId` 는 선택 필드이고 **유효한 양의 정수일 때만 객체에 존재**한다. 없는 카메라에는 키 자체가 없으므로 `server.test.ts:154` 의 키 집합은 그대로다.
-
----
-
-## 실행한 명령과 결과
-
-```
-$ cd SettingMain && npm run typecheck
-> tsc -p tsconfig.json --noEmit
-(오류 없음 — 통과)
-
-$ npx vitest run
-Test Files  1 failed | 21 passed (22)
-     Tests  1 failed | 325 passed (326)
-```
-
-- **착수 전 기준선(리더 실측): 291 pass / 1 fail** → **현재: 325 pass / 1 fail**. 신규 34건 그린, **회귀 0건**.
-- 유일한 red 는 기준선과 **동일한** `test/powershellSafeDiagnostic.test.ts`(없는 파일 `scripts/test-settingmanager-safe.ps1` 을 읽음). 지시대로 손대지 않았다.
-- 최종 판정은 qa-tester 소관이다 — 위 수치는 구현자의 자기 점검이다.
-
-### 설계 4단계 모킹 검증 (일회성 스크립트, 임시 디렉토리)
-
-```
-normalizeConfig(config.json).simulator-2 =
-  {"id":"simulator-2","label":"UE-시뮬2","kind":"park3d-rpc",
-   "controlUrl":"http://192.168.0.125:13510","username":"","password":"",
-   "streamUrl":"http://192.168.0.125:13510/stream","timeoutMs":5000,"camId":1}
-streamTransportFor(streamUrl) = http-mjpeg
-config.example.json = real-camera-1:hucoms:-, real-camera-2:hucoms:-, simulator-1:hucoms:-, simulator-2:park3d-rpc:1
-```
-
-### 실기 **읽기 전용** 확인 (`http://192.168.0.125:13510`, 환경변수·토큰 아무것도 설정하지 않은 상태)
-
-```
-getPtz(raw)    = {"pan":4150,"tilt":2010,"zoom":158}     ← 리더 실측(41.5 / 20.1 / 1.58)과 정확히 일치
-getSnapshot()  = 99237 bytes, SOI = ffd8                  ← cam.captureJPG 실동작 확인
-GET /health    = 200
-```
-
-**`cam.setPTZ` 는 호출하지 않았다** — 카메라를 움직이는 확인은 리더가 사용자 승인 아래 별도로 수행한다.
-
----
-
-## 문서화(documenter)에게 넘길 비자명한 결정
-
-1. **zoom raw 의 의미가 기기마다 다르다.** Hucoms 는 0~65535 불투명 raw, park3d-rpc 는 **배율×100**(100=1.0배, 3600=36배).
-   화면의 같은 숫자칸이 기기에 따라 다른 뜻이라는 점을 반드시 명시해야 한다. pan/tilt 는 두 종류 모두 centi-deg 라 도 표시가 그대로 맞는다.
-2. **인증을 쓰지 않는다.** 형제 프로젝트 `SettingAgent` 는 `X-Park3D-Token` 을 배선하지만 이 프로젝트는 하지 않는다 — 서버가 무인증으로 열려 있음이 실측으로 확정됐기 때문이다.
-   서버가 나중에 인증을 켜면 `!res.ok` 분기가 `HTTP 401` + 서버 본문을 실은 오류로 즉시 드러내므로 조용히 실패하지 않는다.
-3. **`speed` 를 무시한다.** Park3D `cam.setPTZ` 계약에 속도 파라미터가 없다. 지어 보내면 서버가 조용히 버려 "속도를 줬는데 왜 안 먹지"가 된다.
-4. **`camId` 없으면 400.** 임의로 1번을 쓰지 않는다 — 엉뚱한 카메라를 움직이는 사고는 화면에 아무 흔적도 남기지 않는다.
-5. **웹 UI 포트짝 경고의 게이트.** "영상 포트 = 제어 포트 + 10" 은 UE 시뮬(hucoms) 규칙이다. Park3D 는 같은 포트의 `/stream` 이라 게이트가 없으면 정상 설정에 항상 거짓 경고가 뜨고, 그러면 **진짜 경고까지 무시하게 된다**.
+- **시그니처는 하나도 바뀌지 않았다.** `openDatabase(options?): DatabaseSync`,
+  `migrate(db): void`, `transaction(db, work)`, `DatabaseError` 모두 그대로다.
+  새 `verifySchema`·`schemaObjectsOf` 는 **내보내지 않는다** — 테스트는 `migrate()` 나
+  `openDatabase()` 를 통해서만 대조를 건드린다.
+- **던지는 형태**: `DatabaseError`, `name === 'DatabaseError'`, `statusCode === 500`.
+  메시지는 `DB 스키마가 코드의 기대와 다릅니다 — ` 로 시작하고 그 뒤에 어긋난 것들이 `; ` 로
+  이어진다. 열 이름은 **`SCHEMA_SQL` 에 적힌 순서**로 나온다(예: `timeout_ms, kind`).
+  메시지 전체를 문자열 비교하지 말고 **빠진 이름이 들어 있는지**로 검사하는 편이 덜 부서진다.
+- **계획 2-7 은 두 방법 다 된다.** 이 Node(v24.16.0)의 `node:sqlite` 는
+  `ALTER TABLE … DROP COLUMN` 을 지원한다(위 표 마지막 줄에서 실제로 썼다). `preset_info` 를
+  빼는 픽스처도 물론 잡힌다. 어느 쪽을 골라도 되며, 고른 이유를 테스트 주석에 남기면 된다.
+- **Windows 주의 — 던진 뒤의 핸들.** `openDatabase()` 가 `migrate()` 에서 던지면 그 안에서 만든
+  DB 핸들을 **아무도 닫을 수 없다**(반환되지 않으므로). 그 상태로 임시 디렉토리를 `rm` 하면
+  Windows 에서 `EPERM` 이 난다 — 실제로 겪었다. **이것은 이번 변경이 만든 것이 아니라 기존
+  `user_version` 거절 경로에도 있던 성질**이고(계획 비범위라 고치지 않았다), 다만 대조 때문에
+  던지는 경우가 늘었으므로 테스트에서 만난다. 대응:
+  `new DatabaseSync(path)` 로 **테스트가 핸들을 쥐고 `migrate(db)` 만 부른 뒤 직접 닫거나**,
+  정리에서 `rm(dir, { recursive: true, force: true })` 로 실패를 흘리면 된다.
+- 대조는 **열 이름만** 본다. 자료형·`NOT NULL`·`CHECK`·기본값은 보지 않는다 —
+  `ADD COLUMN` 으로 `CHECK` 를 붙일 수 없어(위 `upgradeToV2` 주석) 옛 파일과 새 파일의 제약이
+  원래부터 다르기 때문이다. 제약이 다르다고 던지면 정상적인 옛 파일이 전부 열리지 않는다.

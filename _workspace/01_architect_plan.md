@@ -1,320 +1,180 @@
-# 01 설계서 — Park3D RPC 카메라 드라이버(`kind: "park3d-rpc"`) 신규 추가
+# 01. 설계 — camera_info v2 열 누락으로 전 카메라 400 실패
 
-- 작성: 설계자(architect)
-- 대상 저장소: `D:\Work\Parking3D\Agent\baro\SettingManager`
-- 서비스 루트: `SettingMain/` (부트스트랩 완료 상태 — `SettingMain/package.json`·`tsconfig.json`·`vitest.config.ts` 존재, 부트스트랩 단계 **불필요**)
-
----
-
-## 개정 이력
-
-| 판 | 변경 요약 | 사유 |
-|---|---|---|
-| 초판 | Park3D RPC 드라이버 신설 설계 6단계 | — |
-| 2판 | **토큰 전면 삭제**(D2 폐기: `token` 설정 필드·`PARK3D_RPC_TOKEN` 폴백·`X-Park3D-Token` 헤더·`hasToken`·마스킹 로직 모두 미도입) / `cam.getPTZ` 성공 응답과 `/stream` 무인증 개방을 **가정 → 실측 사실**로 교체 / zoom 100~3600 만 `확인 필요` 유지 / `test/server.test.ts:154` 는 **손대지 않는다**(3단계에서 제거) | 사용자 지시 "토큰 없이 동작하도록" + 리더의 무헤더 실측 3건(200 응답). 지금 없는 인증을 미리 만드는 것은 CLAUDE.md 2항(추측성 코드 금지) 위반 |
-
----
+작성 2026-08-06 / 대상 저장소 `d:\Work\Parking3D\Agent\baro\SettingManager`
 
 ## 범위
 
-`config/config.json` 의 `simulator-2`(`http://192.168.0.125:13510`)는 Hucoms CGI 카메라가 아니라 언리얼 **Park3D JSON-RPC 서버**다.
-현재 `kind:"hucoms"` 로 등록되어 있어 `HucomsClient.getPtz()` 가 `GET /cgi-bin/control/ptzf_status.cgi` 를 보내고, UE HTTP 서버가
-`errors.com.epicgames.httpserver.route_handler_not_found` 로 404 를 돌려준다(웹 UI: "❌ 연결 실패 · 57ms · 카메라 HTTP 404").
+리더가 실측으로 확정한 진단(마이그레이션 미실행 → `kind`/`timeout_ms` 열 부재 → `createDriver()` 400)을 전제로 한다.
+**재진단하지 않는다.** 이 계획이 다루는 것은 넷이다.
 
-이 설계는 **네 번째 카메라 종류 `park3d-rpc` 를 신설**하여 그 서버를 정식 프로토콜로 다룬다.
+1. 마이그레이션이 반드시 돌게 하는 코드 수정 + **같은 함정의 재발 방지 구조**
+2. 회귀 테스트(vitest, 실제 실행)
+3. 운영 DB `SettingMain/config/setup.db` 데이터 복구(`real-camera-2` → `backend-core`)
+4. 서버 재기동 후 동작 확인 + 2차 피해 조사 지시
 
-경계 원칙 — **변환은 드라이버 안에 갇힌다.**
-`PtzRaw`·`clampPtz`·`toView`·PTZ 라우트·웹 UI 는 **한 줄도 바꾸지 않는다.** 상위 계층은 지금까지처럼 raw 정수(centi-deg)만 본다.
-Park3D 가 쓰는 도(度) 실수 ↔ raw 정수 환산은 `Park3DRpcClient` 내부에서만 일어난다.
+**다루지 않는 것은 「비범위」 절에.**
 
----
+### 확인한 현실 (근거)
 
-## 사용자 확정 결정 (임의 변경 금지)
-
-| # | 결정 | 구체값 |
-|---|------|--------|
-| D1 | PTZ 단위는 raw 환산(×100) | pan/tilt: 도×100 centi-deg (41.5° ↔ 4150). zoom: 배율×100 (1.58 ↔ 158), 유효 raw 100~3600 |
-| ~~D2~~ | ~~토큰은 config 필드 + 환경변수 폴백~~ → **2판에서 폐기** | **인증을 넣지 않는다.** 아래 D2' 참조 |
-| D2' | **무인증 호출** (사용자 지시 + 실측) | `token` 설정 필드·`PARK3D_RPC_TOKEN` 폴백·`X-Park3D-Token` 헤더를 **모두 만들지 않는다** |
-| D3 | `camId` 는 설정 필드 신설 | `simulator-2` 는 `camId: 1`. 카메라 2대를 모두 등록하지 않는다 |
-
-### D2' — 왜 인증을 넣지 않는가 (근거)
-
-사용자 지시: *"토큰 없이 동작할 수 있도록 만들어줘. (언리얼 시뮬레이터 서버는 토큰 없이 사용함)"*
-
-리더가 **토큰 헤더 없이** 라이브 서버에 직접 호출해 확인한 실측 3건:
-
-| 호출 | 결과 |
+| 사실 | 근거 |
 |---|---|
-| `POST /rpc {"method":"cam.getPTZ","params":{"camId":1}}` | **HTTP 200** + `{"result":{"pan":41.5,"tilt":20.100000381469727,"zoom":1.5799099206924438}}` |
-| `GET /rpc/catalog` | **200** |
-| `GET /stream` | **200** `multipart/x-mixed-replace; boundary=park3dframe` |
-
-즉 **이 서버는 무인증으로 열려 있다.** 형제 프로젝트(`SettingAgent`)가 `X-Park3D-Token` 을 배선한 것은 그쪽 사정이며,
-지금 이 서버가 요구하지 않는 인증을 미리 만드는 것은 **CLAUDE.md 2항(추측성 코드 금지)** 위반이다.
-
-**나중에 서버가 토큰을 강제하게 되면?** `POST /rpc` 가 401/403 을 돌려주고, 드라이버의 `!res.ok` 분기가
-`HTTP 401 + 서버 본문 200자` 를 실은 `CameraDriverError` 로 그대로 드러낸다 — **조용히 실패하지 않는다.**
-그때 필드를 추가하면 되고, 그 시점에는 "왜 필요한지"가 실측으로 확정되어 있다.
-
----
-
-## 실측 계약 (리더가 라이브 서버 호출로 확인 — 추측 아님)
-
-**인증 없음 — 아래 전부 토큰 헤더 없이 호출한 결과다(2판 실측).**
-
-- `GET /health` → 200, 인증 불필요
-- `POST /rpc` — JSON-RPC 2.0. **헤더는 `content-type: application/json` 뿐**
-- `GET /rpc/catalog` → 200, `{methods:[…]}` 79개 (`cam.list cam.get cam.getPTZ cam.setPTZ cam.captureJPG …`)
-- `GET /stream` → 200 `multipart/x-mixed-replace; boundary=park3dframe`
-- `cam.list` 실응답: `{"cameras":[{"camId":1,"name":"Camera-1","pos":{…},"pan":41.5,"tilt":20.100000381469727,"zoom":1.5799099206924438}, …]}`
-- **`cam.getPTZ` 성공 응답 실측(2판 확정)**: `POST /rpc {"method":"cam.getPTZ","params":{"camId":1}}` → HTTP 200 +
-  `{"result":{"pan":41.5,"tilt":20.100000381469727,"zoom":1.5799099206924438}}`
-  → **result 직하위에 `pan`·`tilt`·`zoom` 3키, 모두 실수.** 추정이 아니라 실측이다.
-- `cam.getPTZ`/`cam.get` 를 params 없이 호출 → `{"error":{"code":-32000,"message":"필수 파라미터 누락: camId","data":null}}` → **camId 필수**
-
-참고 구현(형제 프로젝트, 같은 서버를 호출):
-- `d:\Work\Parking3D\AgentVLA\ParkAgent\SettingAgent\src\clients\CRpcClient.ts` — 본문을 `text()` 로 **1회** 읽고 `body.error` → `!res.ok` 순으로 분기(주석 75~109행에 실패 이력)
-- `d:\Work\Parking3D\AgentVLA\ParkAgent\SettingAgent\src\clients\RpcCameraClient.ts:71,79` — `cam.captureJPG` 응답이 `{img_bytes: base64}`
-- `d:\Work\Parking3D\AgentVLA\ParkAgent\SettingAgent\src\clients\RpcCameraClient.ts:127-134` — `cam.getPTZ` 결과에서 `result.pan/tilt/zoom` 을 직접 읽는다(위 실측과 일치)
-- `d:\Work\Parking3D\AgentVLA\ParkAgent\SettingAgent\config\tools.config.json` — `camera.zoomMin=1 / zoomMax=36` (zoom 배율 범위 근거)
-- ⚠ 형제의 `src\viewer\sourceRegistry.ts:27-29`(`X-Park3D-Token` 헤더)와 `src\config\toolsConfig.ts:296-301`(`resolveRpcToken`)은
-  **이번 작업에서 따라 하지 않는다** — D2' 참조. 참고용으로만 남긴다.
-- `d:\Work\Parking3D\AgentVLA\ParkAgent\SettingAgent\docs\20260804_220116_언리얼RPC_카메라제어_경로복구_baseUrl과res_ok.md` — baseUrl 에 `/stream` 이 붙어 `/stream/rpc` 404 난 사고 기록. **`controlUrl` 에는 경로 접미사를 붙이지 않는다**(`/rpc`·`/health`·`/stream` 은 모두 루트 서비스)
-
----
-
-## 리더 지시와 실제 코드의 차이 (코드로 확인한 사실)
-
-리더 지시의 경로 일부는 실제와 다르다. **아래가 정본이다.**
-
-| 리더 지시 | 실제 경로 | 확인 |
-|---|---|---|
-| `src/devices/park3d/park3dRpcClient.ts` | 그대로 사용 가능 (`src/devices/` 아래 `hucoms/`·`backendCore/` 하위 디렉토리 관례 존재) | ✅ |
-| `src/devices/driverFactory.ts` | 동일 — `default:` 에 `const unknown: never = camera.kind` 소진 검사 있음(29~32행) | ✅ |
-| `src/media/frameSource.ts` | 동일 | ✅ |
-| `web/options.js` | 실제는 `SettingMain/web/options.js` | ✅ |
-| `src/mcp/routeCatalog.ts` | 동일. 검증 테스트 파일명은 `routeCatalog.test.ts` 가 아니라 **`test/mcpServer.test.ts`**(15~24행이 `src/api/routes/*.ts` 를 스캔) | ⚠ 정정 |
-
-추가로 코드에서 확인한 사실(계획에 반영됨):
-- `src/core/local/localCoreProvider.ts:54` — `typeof ctx.driver.centerPoint === 'function'` 으로 능력을 판정한다. `centerPoint` 를 구현하지 않으면 **자동으로** `center` 능력이 `ok:false` 가 된다. 별도 배선 불필요.
-- `src/api/routes/devicePresetRoutes.ts:23,34` — `camera.kind !== 'hucoms'` 이면 501. park3d-rpc 는 **자동으로** 장비 프리셋에서 배제된다. 변경 불필요.
-- `test/optionsDiscoveryBackendCoreUi.test.ts` — 옵션 화면에 **kind 편집 필드를 두면 안 된다**고 못 박는다(`id="fieldKind"`, `['fieldKind','kind']`, `$('fieldKind')` 금지). 즉 kind 는 `config.json` 직접 편집으로만 바뀐다. 이번 작업도 **kind 입력칸을 추가하지 않는다.**
-- `SettingMain/web/options.js` 의 `state.cameras` 는 `/api/settings` 응답이고 `toPublicCamera` 가 `kind` 를 이미 싣는다(`web/control.js:37` 이 `camera.kind` 사용). 즉 **웹 UI 는 이미 kind 를 알고 있다** — 5번 항목에 새 API 배선이 필요 없다.
-- `test/server.test.ts:154` 가 공개 카메라의 **키 집합을 정확히** 검사한다: `['controlUrl','hasPassword','id','kind','label','streamUrl','timeoutMs','username']`.
-  **2판: 토큰을 넣지 않으므로 이 테스트는 손대지 않는다.** 공개 키 집합은 그대로 유지되며, 이 테스트가 깨지면 **회귀다**
-  (초판에서 "의도된 계약 변경 1건"으로 잡았던 항목은 취소됐다).
-
----
+| `camera_info` 실제 10열, `user_version=2` | `SettingMain/config/setup.db` 직접 조회(읽기 전용) |
+| 카메라 4대: cam_id 1~4 = real-camera-1 / real-camera-2 / simulator-1 / simulator-2 | 같은 조회 |
+| `config.json` 에 `cameras` 키가 **없다** → 재이관 경로(`ConfigStore.migrateCameras`)는 다시 돌지 않는다 | `SettingMain/config/config.json` |
+| 원본 kind: real-camera-2 만 `backend-core`, 나머지 3대 `hucoms`. 4대 모두 `timeoutMs:5000`, `intrinsics`·`camId` **없음** | `SettingMain/config/config.json.bak-cameras` |
+| `cam_company` 는 kind 의 증인이 못 된다 — real-camera-2 가 `휴컴스`, 시뮬 2대가 `시뮬레이터`로 `companyOf()` 결과와 다르다(사람이 UI 로 고친 값) | DB 조회 vs `src/db/configCameras.ts:132` |
+| 서버는 `nodemon --watch src --ext ts --exec tsx src/index.ts` 로 :13030 에서 실행 중, `setup.db-wal`/`-shm` 존재 | `SettingMain/package.json:11`, `config/` 목록 |
 
 ## 가정 / 확인 필요
 
-- ~~**가정 A (PTZ 응답 shape)**~~ → **2판에서 실측으로 해소.** `cam.getPTZ {camId:1}` → `{"result":{"pan":41.5,"tilt":20.100000381469727,"zoom":1.5799099206924438}}`.
-  result 직하위 3키·실수 확정. **드라이버는 세 값 중 하나라도 유한수가 아니면 `CameraDriverError` 를 던진다는 설계는 그대로 유지한다**(조용한 0 폴백 금지 — 미래의 스키마 변화를 침묵시키지 않기 위한 방어이며, 지금 계약을 의심해서가 아니다).
-- ~~**확인 필요 1 (`/stream` 인증)**~~ → **2판에서 실측으로 해소.** 토큰 헤더 없이 `GET /stream` → 200 `multipart/x-mixed-replace; boundary=park3dframe`.
-  `src/media/httpMjpeg.ts` 가 커스텀 헤더를 못 싣는 문제는 **애초에 발생하지 않는다.** 인증 없는 MJPEG 중계로 그대로 동작한다.
-- **가정 B (setPTZ 파라미터·응답)**: `cam.setPTZ` params 는 `{camId, pan, tilt, zoom}`(도·배율), 응답은 `{ok:true}` 계열. 근거: `RpcCameraClient.ts:65,115-121`. 드라이버는 **`ok` 값을 성공 판정에 쓰지 않는다** — JSON-RPC `error` 부재 + `res.ok` 로만 판정한다(형제의 "result 부재를 근거로 쓰지 말라"는 주석 근거, `CRpcClient.ts:100-102`). 실기 확인은 4단계.
-- **가정 C (camId 누락 시 동작)**: `park3d-rpc` 카메라에 `camId` 가 없으면 드라이버가 **400 으로 던진다**(임의로 1 을 넣지 않는다). 근거: 서버 자신이 `-32000 필수 파라미터 누락: camId` 로 거절하고, `CameraDriver` 주석이 "못 하는 기능은 지어내지 않고 던진다"는 규약을 명시(`src/devices/cameraDriver.ts:35-38`).
-  **2판 보강: `simulator-2` 는 4단계에서 `camId:1` 을 설정에 명시하므로 정상 경로에서는 이 오류가 걸리지 않는다.** 이 throw 는 `config.json` 을 손으로 편집해 park3d-rpc 카메라를 추가하면서 `camId` 를 빠뜨린 경우에만 나타나고, 그때 "어느 카메라를 조작할지 모른 채 1번을 움직이는" 사고를 막아 준다.
-- **확인 필요 (유지)**: zoom raw 유효범위 **100~3600** 의 근거는 형제의 `camera.zoomMin=1 / zoomMax=36` 설정값이다. Park3D 서버가 범위 밖 값을 실제로 어떻게 다루는지(거부·클램프·그대로 수용)는 **미확인** — 확인하려면 카메라를 실제로 움직여야 한다. 드라이버는 이 범위로 **자체 클램프**만 하고, 서버가 거부하면 그 오류를 그대로 전달한다.
-- **확인 필요 (유지)**: `cam.captureJPG` 의 base64 가 `data:` 접두 없이 순수 base64 인지. 형제는 `Buffer.from(cap.img_bytes ?? '', 'base64')` 로 바로 디코드한다(`RpcCameraClient.ts:79`). 드라이버는 디코드 후 **JPEG SOI(`FF D8`) 검증**으로 이 불확실성을 잡는다.
+- **가정**: v2 열 4개의 ALTER 기본값(`timeout_ms=5000`, `kind='hucoms'`, `park3d_cam_id=NULL`, `intrinsics=NULL`)이 백업 파일의 원본과 일치한다 — real-camera-2 의 `kind` 하나만 예외. 위 표가 근거다.
+- **확인 필요 (A)**: real-camera-2 의 `cam_company` 가 `휴컴스`인데 kind 는 `backend-core` 다. 백업 파일에는 제조사 정보가 없어 **어느 쪽이 맞는지 근거가 없다.** 기본 방침은 **건드리지 않는다**(kind 만 고친다). 제조사도 고칠지는 사용자 판단.
+- **확인 필요 (B)**: 4대 모두 `intrinsics` 가 NULL 이 된다. 그런데 **백업 파일에도 intrinsics 가 없었다** — 즉 브리지 박스줌이 꺼진 것은 이번 버그의 결과가 아니라 이관 전부터의 상태다. 줌→화각 표를 채울지는 **별건**이며 이 계획의 범위 밖이다(조사 항목으로만 남긴다).
+- **확인 필요 (C)**: 데이터 복구를 위해 **개발 서버를 한 번 정지**해야 한다(백업의 일관성). 정지 가능한 시점을 사용자가 정한다.
 
 ---
 
 ## 단계
 
-### 1단계 — `Park3DRpcClient` 신설
-**파일**: `SettingMain/src/devices/park3d/park3dRpcClient.ts` (신규)
+### 1단계. 스키마 판 올림 + 마이그레이션 실행 보장
 
-`CameraDriver`(`src/devices/cameraDriver.ts:39-49`)를 구현한다.
+**파일**: `SettingMain/src/db/schema.ts`, `SettingMain/src/db/database.ts`
 
-```
-options: { cameraId, baseUrl, camId?, timeoutMs, fetchImpl? }     ← token 필드 없음(D2')
-readonly kind = 'park3d-rpc'
-```
+1-1. `schema.ts` — `SCHEMA_VERSION = 2` → **`3`**.
+   - 머리말의 "스키마를 바꾸면 올리고 마이그레이션을 추가한다" 주석은 유지하되, **판을 안 올려도 잡히는 안전망이 생겼다**는 한 줄을 덧붙인다(1-3 참조).
 
-- 생성자: `baseUrl` 이 비면 400 으로 던진다(HucomsClient 선례 31행). `baseUrl.replace(/\/+$/,'')` 로 후행 슬래시 제거.
-- `private callRpc(method, params)`: `POST ${baseUrl}/rpc`, body `{jsonrpc:'2.0', id:1, method, params}`,
-  헤더는 **`content-type: application/json` 뿐이다 — 인증 헤더를 보내지 않는다**(D2').
-  타임아웃은 `AbortSignal.timeout(timeoutMs)`(HucomsClient 96행과 동일 관례).
-  **본문은 `text()` 로 1회만 읽고**, ① JSON 파싱 실패 → 원문 200자를 실은 오류, ② `body.error` → `RPC 오류 [code]: message`,
-  ③ `!res.ok` → `HTTP {status}` + 원문 200자, ④ 그 외 `body.result` 반환. **순서를 지킨다**(근거: `CRpcClient.ts:75-111` 주석 —
-  순서를 바꾸면 404 본문이 `result:undefined` 로 조용히 통과해 먼 곳에서 TypeError 로 터진다).
-- `private requireCamId()`: `camId` 가 양의 정수가 아니면 `CameraDriverError('… camId 를 설정하세요', 400)` (가정 C).
-- `getPtz()`: `cam.getPTZ {camId}` → `{pan,tilt,zoom}`(도·배율) → **raw 로 환산**
-  `pan: Math.round(pan*100)`, `tilt: Math.round(tilt*100)`, `zoom: Math.round(zoom*100)`. 유한수가 아니면 던진다(가정 A).
-- `goPtz(target, speed?)`: 입력은 raw. ① `clampPtz(target)`(공유 도메인 — pan wrap·tilt 클램프) ② zoom raw 를 **100~3600 으로 자체 클램프**
-  ③ `/100` 해서 `cam.setPTZ {camId, pan, tilt, zoom}` 호출. `speed` 인자는 **무시한다**(Park3D 계약에 속도 파라미터가 없다 — 주석으로 명시).
-- `getSnapshot()`: `cam.captureJPG {camId}` → `img_bytes` base64 디코드 → **`FF D8` SOI 검증** 실패 시 던진다(HucomsClient 68-72행 선례).
-- `listSlots()`: `return []` (주차면 개념 없음 — 오류가 아니다).
-- **`centerPoint` 는 구현하지 않는다.** `CameraDriver` 의 선택 메서드이고 Park3D 에 대응 계약이 없다.
-- **마스킹 로직은 만들지 않는다**(D2' — 감출 비밀 자체가 없다. HucomsClient 의 `mask` 는 쿼리스트링 평문 비밀번호 때문이고 여기엔 해당 사항이 없다).
-  다만 오류 문구에 URL·서버 본문을 실을 때 **`baseUrl` 과 요청 경로만** 싣고 자격증명류를 새로 끌어오지 않는다는 기존 관례는 지킨다.
+1-2. `database.ts` `migrate()` —
+   - `if (current === SCHEMA_VERSION) return;` → `if (current < SCHEMA_VERSION) { …판 올리기… }` 로 바꾼다. `current > SCHEMA_VERSION` 던지기는 **그대로 둔다**.
+   - 판 올리기 블록 안의 `if (current >= 1) upgradeToV2(db);` 에서 **버전 조건을 없애고 무조건 호출한다.** `upgradeToV2()` 는 이미 `PRAGMA table_info` 로 판단하므로 새 파일(표 없음)에서는 스스로 빠져나가고, 있는 열은 건너뛴다 — 판 번호로 분기하는 자리가 하나 줄어드는 것이 이 버그의 교훈이다.
+   - 50~55행 주석("지금은 초판뿐이라 …") 과 `upgradeToV2()` 의 "v1 → v2" 표현을 **현실에 맞게 갱신한다**: "열 유무로 판단하므로 어느 옛 판에서 올라와도 멱등하다".
 
-**검증 (모킹 유닛테스트, 실기 불필요)** — `SettingMain/test/park3dRpcClient.test.ts`:
-1. `cam.getPTZ` 모킹 응답 **`{"result":{"pan":41.5,"tilt":20.100000381469727,"zoom":1.5799099206924438}}`**(리더 실측 원문 그대로 — 모킹 근거를 테스트 주석에 남긴다) → `getPtz()` === `{pan:4150, tilt:2010, zoom:158}`
-2. 요청 검사: URL 이 정확히 `http://host:13510/rpc`(경로 중복 `/stream/rpc` 없음), method POST, body 가 `{jsonrpc:'2.0',id:1,method:'cam.getPTZ',params:{camId:1}}`
-3. **인증 헤더 부재 검사**: 전송된 헤더에 `X-Park3D-Token` 이 **없다**(대소문자 무시). 헤더는 `content-type` 만 있다.
-   `process.env.PARK3D_RPC_TOKEN` 을 설정해 두어도 **여전히 헤더가 붙지 않는다**(D2' 회귀 방지 — 환경변수가 조용히 되살아나지 않게 한다)
-4. `goPtz({pan:4150,tilt:2010,zoom:158})` → `cam.setPTZ` params `{camId:1,pan:41.5,tilt:20.1,zoom:1.58}`
-5. zoom 클램프: `goPtz(zoom: 50)` → 전송 zoom `1`, `goPtz(zoom: 9999)` → 전송 zoom `36`
-6. 오류 봉투: `{"error":{"code":-32000,"message":"필수 파라미터 누락: camId"}}` 를 **HTTP 200 으로** 돌려줘도 `CameraDriverError` 로 던진다(메시지에 `-32000` 포함)
-7. 404 + `{"errorCode":"errors.com.epicgames.httpserver.route_handler_not_found","errorMessage":""}` → 던진다. **`undefined` 를 정상 반환하지 않는다**(사고 재발 방지)
-8. `getSnapshot()`: `{img_bytes: <FF D8 … base64>}` → Buffer 첫 두 바이트 `0xFF 0xD8`. SOI 아닌 base64 → 던진다
-9. **401/403 미래 대비**: HTTP 401 + 임의 본문 → `CameraDriverError` 로 던지고 메시지에 `401` 이 보인다
-   (서버가 나중에 인증을 켜면 조용히 실패하지 않고 즉시 드러난다는 D2' 의 근거를 테스트로 고정한다)
-10. `camId` 미설정 → `getPtz()` 가 `statusCode===400` 으로 던진다. `fetch` 는 **호출되지 않는다**
-11. `listSlots()` === `[]`, `centerPoint` 는 `undefined`(속성 자체가 없다)
+1-3. **재발 방지 구조 — 채택: (b) 열기 시점 스키마 대조(판 번호와 무관한 안전망)**
+
+   구현 형태(약 25줄, `database.ts` 안의 비공개 함수 하나):
+   - `:memory:` 에 `SCHEMA_SQL` 만 실행한 **일회용 기준 DB** 를 만들어, 표/뷰 이름과 각 표의 열 이름 집합을 뽑는다.
+   - 실제 DB 의 같은 목록과 대조해 **기대에 있는데 실제에 없는** 표·열을 모은다.
+   - 하나라도 있으면 `DatabaseError` 로 던진다. 메시지에 **무엇이 없는지 이름을 그대로 싣는다**
+     (예: `DB 스키마가 코드의 기대와 다릅니다 — camera_info 에 kind, timeout_ms 가 없습니다`).
+   - `migrate()` 의 **맨 끝에서 항상** 부른다(판을 올렸든 안 올렸든).
+   - 실제에만 있는 여분의 열은 **문제 삼지 않는다** — 앞선 판이 연 파일은 `user_version` 검사가 이미 막는다.
+
+   **왜 이것인가**
+   - (a) 판 올림 + 규율: **이번에 실패한 방식**이다. 사람이 잊으면 아무도 알려 주지 않고, 증상이 `undefined` 로 조용히 새어 나가 400 이 될 때까지 아무 데서도 안 걸린다.
+   - (c) 전부 멱등하게 매번 실행: 이번 버그는 막지만 **다음 버그는 못 막는다** — 새 열을 `SCHEMA_SQL` 에만 넣고 멱등 단계를 안 쓰면 다시 조용히 없는 열이 된다. 즉 여전히 사람의 규율에 기댄다.
+   - (b) 는 **의도(`SCHEMA_SQL`)와 현실(파일)을 직접 대조**하므로, 판을 안 올리든 마이그레이션 단계를 빠뜨리든 **원인과 무관하게** 그 클래스를 전부 잡는다. 기대 목록을 손으로 관리하지 않아(SCHEMA_SQL 에서 뽑는다) 목록 자체가 낡을 수 없다. 값은 기동 시 1회 + 테스트당 1회의 `:memory:` DB 하나.
+   - 마이그레이션 프레임워크(버전별 파일, 다운그레이드, 이력 표)는 **짓지 않는다** — 표 7개짜리 단일 서비스에 과하다(CLAUDE.md 2번).
+
+   **역할 분담을 분명히**: 고치는 것은 마이그레이션, **검사하는 것은 대조**다. 대조는 자동 보정하지 않는다 — 보정까지 하면 "무엇이 왜 어긋났는가"를 아무도 안 보게 되고, 대조가 두 번째 마이그레이션 엔진이 된다.
+
+**검증**: `npm run typecheck` 통과. 2단계 테스트 전부 통과.
 
 ---
 
-### 2단계 — `driverFactory` kind 분기 + 타입 확장
-**파일**: `SettingMain/src/devices/driverFactory.ts`, `SettingMain/src/config/types.ts`
+### 2단계. 회귀 테스트
 
-`CameraKind` 를 `'hucoms' | 'backend-core' | 'park3d-rpc'` 로 넓히고, `createDriver` 에 `case 'park3d-rpc'` 를 추가해
-`Park3DRpcClient` 를 `{cameraId: camera.id, baseUrl: camera.controlUrl, camId: camera.camId, timeoutMs: camera.timeoutMs, fetchImpl}` 로 만든다
-(**`token` 은 넘기지 않는다** — 필드 자체가 없다, D2').
-**둘을 같은 커밋에서 바꾼다** — `default:` 의 `const unknown: never = camera.kind` 가 타입만 넓히면 컴파일 오류를 낸다(그게 의도된 안전장치다).
-`types.ts` 상단의 `CameraKind` 주석에 `park3d-rpc` 설명을 추가한다: 언리얼 Park3D JSON-RPC(`POST /rpc`), **Hucoms CGI 가 아니다**.
+**파일**: `SettingMain/test/database.test.ts` 에 `describe('옛 파일 열기 — v2 열 보강')` 블록 추가.
+기존 관례를 따른다(`mkdtemp`/`rm` 로 임시 디렉토리, 한글 `it` 문장, 근거 주석).
 
-**검증 (모킹)**:
-1. `npm run typecheck` 통과 — `never` 소진 검사가 살아 있음을 확인(케이스를 지우면 실패해야 한다)
-2. `createDriver({kind:'park3d-rpc', …})` 가 `kind === 'park3d-rpc'` 인 드라이버를 돌려준다
-3. 기존 `hucoms`·`backend-core` 분기 회귀 없음
+**`:memory:` 로는 이 버그를 재현할 수 없다** — "이미 존재하는 옛 파일"이 전제이고 메모리 DB 는 닫으면 사라져 다시 열 수 없다. 따라서 **임시 파일 경로가 필수**다(`mkdtemp(join(tmpdir(), 'settingmanager-db-'))`, `afterEach`/`finally` 에서 `rm`).
 
----
+**픽스처 만드는 법**: `openDatabase()` 를 쓰면 안 된다(그 자체가 고치는 대상). `src/db/sqlite.js` 의 `DatabaseSync` 를 직접 써서 옛 스키마를 SQL 로 세운다 — `place_info` + **10열 `camera_info`**(cam_id, cam_name, cam_uuid, url, user_id, password, rtsp_url, cam_type, cam_company, place_id), 카메라 2줄 삽입, `PRAGMA user_version = 2`, close. 이 10열 정의는 **역사적 v1 스키마를 재현한 테스트 픽스처**이며 소스의 `SCHEMA_SQL` 과 별개다(공유하면 재현이 무너진다).
 
-### 3단계 — 설정 타입·정규화
-**파일**: `SettingMain/src/config/types.ts`, `SettingMain/src/config/normalize.ts`
-(**2판: `test/server.test.ts` 는 수정 대상에서 빠졌다** — 아래 참조)
-
-`CameraConfig` 에 선택 필드 **1개**:
-- `camId?: number` — park3d-rpc 전용. **1-based**
-- ~~`token?: string`~~ → **만들지 않는다**(D2')
-
-`normalize.ts`:
-- `CAMERA_KINDS` 에 `'park3d-rpc'` 추가(5행)
-- `normalizeCamera`: `camId` 는 **양의 정수일 때만** 싣는다(유효하지 않으면 필드를 만들지 않는다 — 기존 `int()` 헬퍼는 클램프라 부적합)
-- **`PublicCamera`·`toPublicCamera` 는 손대지 않는다.** 감출 새 비밀이 없으므로 `hasToken` 도 없다.
-  `camId` 는 비밀이 아니므로 기존 스프레드로 자연히 공개된다(값이 있는 카메라에만).
-- **`mergeSettings` 도 손대지 않는다.** password 의 "빈 문자열 = 변경 없음" 규칙은 **그대로 유지**하고, token 용 대응 규칙은 추가하지 않는다.
-  `camId` 는 일반 필드라 기존 `{...camera, ...change}` 병합으로 충분하다.
-
-**검증 (모킹)** — `test/normalize.test.ts` 보강:
-1. `normalizeCamera({id:'x', kind:'park3d-rpc'})?.kind === 'park3d-rpc'` (기존 "알 수 없는 kind 는 hucoms" 테스트는 그대로 통과해야 한다)
-2. `normalizeCamera({id:'x', kind:'park3d-rpc', camId:'2'})` → `camId === 2`; `camId:0`·`camId:-1`·`camId:'abc'` → `camId` 필드 없음
-3. `normalizeCamera({… token:'apark3d'})` 결과에 **`token` 키가 없다**(설정에 남은 옛 토큰 값이 있어도 조용히 버려진다 — D2')
-4. **`test/server.test.ts:154` 의 공개 카메라 키 집합은 그대로 통과해야 한다**
-   (`['controlUrl','hasPassword','id','kind','label','streamUrl','timeoutMs','username']`). 이 테스트가 깨지면 **회귀다** — 고칠 대상이 아니다
-5. `PUT /api/settings` 로 `kind:'park3d-rpc'` 저장 → 다시 읽었을 때 유지(`server.test.ts` 628-630행 패턴)
-6. `camId` 가 있는 카메라의 `/api/settings` 응답에는 `camId` 가 실리고, 없는 카메라에는 키가 없다
-
----
-
-### 4단계 — 설정 파일 정정
-**파일**: `SettingMain/config/config.json`, `SettingMain/config/config.example.json`
-
-`config.json` 의 `simulator-2`:
-```
-kind:       "hucoms"                        → "park3d-rpc"
-controlUrl: "http://192.168.0.125:13510"      (그대로 — 경로 접미사 금지)
-streamUrl:  "http://192.168.0.125:13510"    → "http://192.168.0.125:13510/stream"
-camId:      (없음)                          → 1
-label:      "UE-시뮬2"                      → "Park3D 시뮬2 (RPC)"  ← 오해 재발 방지
-```
-**`token` 필드는 쓰지 않는다 — 존재하지 않는 필드다**(D2'). 환경변수도 필요 없다.
-`config.example.json` 에는 `park3d-rpc` 예시 항목 1건을 추가한다(`kind`·`controlUrl`·`streamUrl`(`/stream`)·`camId:1`,
-`username`/`password` 는 빈 문자열 — **이 종류는 인증을 쓰지 않는다**는 주석성 설명을 `_comment` 관례에 맞춰 곁들인다).
-다른 3대(`real-camera-1/2`, `simulator-1`)는 **건드리지 않는다**.
-
-**검증**:
-- (모킹) 정정된 `config.json` 을 `normalizeConfig` 에 통과 → `simulator-2.kind === 'park3d-rpc'`, `camId === 1`, `streamUrl` 이 `/stream` 으로 끝난다
-- (모킹) `streamTransportFor(simulator-2.streamUrl) === 'http-mjpeg'`
-- (**실기 — 라이브 서버 필요**) 서비스 기동 → 옵션 화면에서 `simulator-2` 「연결 테스트」 → `✅ 연결 성공 · PTZ P 4150 / T 2010 / Z 158` 형태(현재 값에 따라 숫자는 다름). 404 문구가 사라진다. **환경변수·토큰을 아무것도 설정하지 않은 상태에서 성공해야 한다**(D2')
-- (**실기**) 제어 화면에서 PTZ 이동 1회 → 화면의 pan/tilt 가 목표 근방으로 바뀐다 (가정 B 확인)
-- (**실기**) 영상 탭에서 `/stream` MJPEG 가 재생된다 (무인증 스트림 확인)
-
----
-
-### 5단계 — 웹 UI 포트짝 경고 오탐 제거
-**파일**: `SettingMain/web/options.js` (78~105행)
-
-`portPairWarning` 은 "UE 시뮬은 영상 포트 = 제어 포트 + 10" 규칙이다. Park3D 는 **제어와 영상이 같은 포트(13510)** 이므로
-`simulator-2` 에서 항상 `⚠ 제어 13510 의 영상 포트는 13520 입니다` 라는 **거짓 경고**가 뜬다.
-
-- `applyStreamHint()` 가 `selected()?.kind` 를 읽어 `portPairWarning(controlUrl, streamUrl, kind)` 로 넘긴다.
-  `kind === 'park3d-rpc'` 면 `portPairWarning` 은 즉시 `''` 를 반환한다. **다른 kind 의 기존 경고 로직은 한 줄도 바꾸지 않는다.**
-- 같은 함수의 http 안내 문구 `"(UE 시뮬 직결 포트 = 제어 포트 + 10)"` 도 park3d-rpc 에서는 오해를 부르므로
-  이 kind 에서만 `"(Park3D 는 같은 포트의 /stream 을 중계합니다)"` 로 바꾼다.
-- **kind 입력칸을 추가하지 않는다** — `test/optionsDiscoveryBackendCoreUi.test.ts` 가 `id="fieldKind"`·`$('fieldKind')` 부재를 검사한다.
-  카메라의 `kind` 는 이미 `/api/settings` 응답(`toPublicCamera`)에 실려 `state.cameras` 에 들어 있다. **새 API 배선은 필요 없다.**
-
-**검증 (모킹, 소스 스캔 방식)** — `test/optionsPark3dUi.test.ts` 신규(기존 `optionsDiscoveryBackendCoreUi.test.ts` 의 소스 문자열 검사 패턴을 따른다):
-1. `options.js` 소스에 `'park3d-rpc'` 조기 반환이 존재하고, `portPairWarning` 호출이 kind 를 넘긴다
-2. `options.js` 에 `id="fieldKind"`/`$('fieldKind')` 가 여전히 **없다**(기존 테스트도 그린 유지)
-3. 가능하면 `portPairWarning` 을 그대로 평가해 `('http://h:13510','http://h:13510/stream','park3d-rpc') → ''`,
-   `('http://h:8081','http://h:8091','hucoms') → ''`, `('http://h:8081','http://h:8095','hucoms') → 경고 문자열` 을 확인한다
-   (모듈 최상단이 `./api.js` 를 import 하므로 직접 import 가 어려우면 1·2번의 소스 검사로 대체하고, 그 한계를 테스트 주석에 남긴다)
-
----
-
-### 6단계 — 영향 없음을 **확인하고 기록**(코드 변경 없음)
-
-이 단계는 "고치지 않는다"를 근거와 함께 확정하는 단계다. 구현자는 코드를 만지지 말고 검증만 한다.
-
-| 대상 | 결론 | 근거 |
+| # | 케이스 | 성공 기준 |
 |---|---|---|
-| `src/media/frameSource.ts` | **드라이버와 무관.** `streamUrl` 이 `http://` 면 `streamTransportFor` → `http-mjpeg` 로 MJPEG 를 그대로 중계하고, 드라이버는 **스냅샷 폴링(`snapshot-poll`) 경로에서만** 쓰인다(`createFrameSource` 42-44행). `simulator-2` 는 `/stream` 이 있으므로 폴링을 타지 않는다. `getSnapshot()` 은 `GET /api/snapshot` 과, streamUrl 을 비웠을 때의 폴백에서만 쓰인다 | `src/media/frameSource.ts:20-45,145-153` |
-| `src/media/httpMjpeg.ts` | **변경 불필요(2판 확정).** `/stream` 이 무인증 200 이므로 커스텀 헤더가 필요 없다. `simulator-2` 는 username 이 비어 `authenticatedHttpUrl` 이 쿼리도 붙이지 않는다 — 있는 그대로 GET 한다 | `src/media/httpMjpeg.ts:21-35`, 리더 실측 |
-| `src/mcp/routeCatalog.ts` | **갱신 대상 아님.** 라우트를 새로 만들지 않는다. 이 카탈로그는 **라우트** 카탈로그이고 `test/mcpServer.test.ts:15-24` 가 `src/api/routes/*.ts` 의 선언 경로만 스캔한다 | `src/mcp/routeCatalog.ts:1-13`, `test/mcpServer.test.ts` |
-| `src/api/routes/devicePresetRoutes.ts` | **변경 불필요.** `camera.kind !== 'hucoms'` → 501 이므로 park3d-rpc 는 자동 배제 | 23·34행 |
-| `src/core/local/localCoreProvider.ts` | **변경 불필요.** `typeof driver.centerPoint === 'function'` 판정이라 `centerPoint` 미구현이 곧 `center: ok:false` | 53-54, 72-73행 |
-| `src/domain/ptz.ts`, PTZ 라우트, `web/control.js` | **불변.** raw 계약을 유지한다(D1) | — |
+| 2-1 | **핵심**: 위 픽스처를 `openDatabase({path})` 로 연다 | `PRAGMA table_info(camera_info)` 열 이름 집합이 `timeout_ms`·`kind`·`park3d_cam_id`·`intrinsics` 를 **모두 포함**. `user_version === SCHEMA_VERSION`(=3) |
+| 2-2 | 같은 DB 에서 `readCameras(db)`(`src/db/configCameras.js`) | 반환 배열의 모든 원소가 `kind === 'hucoms'`, `timeoutMs === 5000`. `undefined` 가 하나도 없다 |
+| 2-3 | 기존 데이터 보존 | 픽스처에 넣은 `url`·`rtsp_url`·`user_id`·`cam_name`·`cam_uuid` 가 열기 전후로 **문자 그대로 동일** |
+| 2-4 | 새 파일(빈 경로) | 처음 열었을 때 `camera_info` 가 **14열**이고 `user_version === SCHEMA_VERSION` |
+| 2-5 | 멱등 | 2-1 의 DB 를 닫고 **다시 열어도** 던지지 않고, 열 집합·행 수가 그대로 |
+| 2-6 | 앞선 판 거절 | `PRAGMA user_version = SCHEMA_VERSION + 1` 후 `migrate(db)` 가 `DatabaseError` — **기존 테스트가 이미 덮는다**(`database.test.ts:68`). 값만 새 `SCHEMA_VERSION` 을 따라가는지 확인 |
+| 2-7 | 대조 안전망이 실제로 던진다 | `camera_info` 에서 열 하나가 빠진 상태를 만들고 **`user_version` 을 최신(3)으로 위조**한 픽스처를 연다 → `DatabaseError` 를 던지고 메시지에 **빠진 열 이름이 들어 있다**. (SQLite 는 `DROP COLUMN` 을 지원하므로, 14열 DB 를 만든 뒤 `ALTER TABLE camera_info DROP COLUMN park3d_cam_id` 로 만든다. 지원 여부가 Node 내장 버전에 달렸다면 대신 10열 픽스처 + `user_version=3` 으로 같은 상황을 만든다 — 이때 1-2 의 무조건 `upgradeToV2()` 가 먼저 고쳐 버리므로, 이 케이스는 **표가 아니라 다른 표/열**로 세운다: 예컨대 `preset_info` 를 아예 만들지 않은 픽스처. 구현자가 둘 중 되는 쪽을 고르고 어느 쪽을 골랐는지 테스트 주석에 남긴다.) |
 
-**검증 (모킹)**:
-1. `test/mcpServer.test.ts` 그린 유지(카탈로그 미변경으로도 통과)
-2. park3d-rpc 카메라로 `GET /api/device-preset-capability` → 501
-3. park3d-rpc 카메라로 `GET /api/core/capabilities` → `center.ok === false`, 사유 문구 포함
-4. `npm run test` 전체 그린 — **2판 기준 기존 테스트 파일은 `test/normalize.test.ts` 보강 외에 수정하지 않는다.**
-   특히 `test/server.test.ts` 는 한 줄도 바뀌지 않아야 한다. 여기서 red 가 나면 전부 **회귀**다
+**주의**: 2-7 의 취지는 "대조가 실제로 무언가를 잡는다"를 보이는 것이다. 잡히는 대상이 `camera_info.kind` 일 필요는 없다.
+
+**검증**: `cd SettingMain && npm run test` **실제 실행**. 새 케이스 전부 통과 + **기존 테스트 전부 통과**(특히 `database.test.ts`·`server.test.ts`·`dbRoutes.test.ts`). 실행하지 않은 테스트를 통과로 보고하지 않는다.
+
+---
+
+### 3단계. 운영 DB 복구 (순서가 안전장치다)
+
+**되돌리기 어려운 작업이다. 아래 순서를 지킨다.**
+
+| 순 | 작업 | 성공 기준 |
+|---|---|---|
+| 3-1 | **개발 서버 정지**(nodemon/tsx, :13030). 정지 확인까지 | :13030 에 연결이 되지 않는다 |
+| 3-2 | **백업**: `config/setup.db`·`setup.db-wal`·`setup.db-shm` **세 파일을 함께** `config/backup/20260806_HHMMSS/` 로 복사 | 세 파일이 백업 경로에 존재. WAL 을 빼고 `.db` 만 복사하면 **아직 반영 안 된 쓰기를 잃는다** — 서버를 먼저 정지시키는 이유가 이것이다 |
+| 3-3 | 1·2단계 코드 수정을 적용하고 테스트 통과 확인 | 2단계 검증 통과 |
+| 3-4 | **서버 기동**. 기동 시 `openDatabase()` → `migrate()` 가 열 4개를 붙인다 | 로그에 오류 없음. `PRAGMA table_info(camera_info)` 14열, `user_version=3`. 4대 모두 `kind='hucoms'`, `timeout_ms=5000` |
+| 3-5 | **`real-camera-2` 만 보정** — `PUT /api/db/cameras/2` 본문 `{"kind":"backend-core"}` (`src/api/routes/dbRoutes.ts:126`). curl 로 하든 옵션 화면 DB 탭에서 종류를 바꿔 저장하든 **같은 경로**다 | 응답 `camera.kind === 'backend-core'`. 나머지 3대는 손대지 않는다 |
+
+**왜 이 방법인가**
+- 이 라우트는 저장 직후 **`deps.configStore.reloadCameras()` 를 부른다**(`dbRoutes.ts:128`). `sqlite3` 로 직접 `UPDATE` 하면 DB 는 바뀌지만 **메모리의 `config.cameras` 는 옛 값 그대로**라 다음 명령이 여전히 틀린 드라이버로 나간다(`src/config/configStore.ts:65` 가 경고하는 바로 그 함정).
+- 일회성 보정을 위한 **스크립트·마이그레이션 코드를 소스에 남기지 않는다**(CLAUDE.md 2·3번). 이미 있는 정식 편집 경로를 쓴다.
+- **UI 로 다른 카메라를 저장하는 일은 3-4 이전에 하지 않는다.** `web/optionsDb.js:208` 이 `camKind` 셀렉트에 `camera.kind`(=undefined)를 넣으면 셀렉트가 첫 항목으로 떨어지고, 그 상태로 저장하면 **틀린 kind 를 확정 기록**한다.
+
+**되돌리기**: 3-2 의 백업 디렉토리에서 세 파일을 되돌린다(서버 정지 상태에서).
+
+---
+
+### 4단계. 동작 확인 (서버 재기동 후, 실제 호출)
+
+성공 기준을 **"400 `알 수 없는 카메라 종류` 가 사라졌다"로 좁힌다.** 실제 카메라의 타임아웃·502·인증 실패는 **이번 버그와 다른 문제**이며 여기서는 실패로 치지 않는다.
+
+| # | 확인 | 성공 기준 |
+|---|---|---|
+| 4-1 | `GET /api/settings` | `cameras` 4대 **전부** `kind` 와 `timeoutMs` 가 값이 있다. `real-camera-2.kind === 'backend-core'`, 나머지 3대 `'hucoms'`, 전부 `timeoutMs === 5000` |
+| 4-2 | `GET /api/ptz?cameraId=simulator-1` / `simulator-2` / `real-camera-1` / `real-camera-2` | 응답이 **400 + 본문에 `알 수 없는 카메라 종류` 가 아니다.** 200 이면 통과, 502/504/타임아웃이어도 **이 항목은 통과**(별건으로 기록) |
+| 4-3 | `GET /api/stream?cameraId=simulator-1` | 400 이 아니다. 응답 헤더 `Content-Type` 이 `multipart/x-mixed-replace` 계열 |
+| 4-4 | `GET /api/snapshot?cameraId=simulator-1` | 400 `알 수 없는 카메라 종류` 가 아니다 |
+| 4-5 | 웹 UI 열기 | "영상을 받지 못했습니다 — 옵션 페이지에서 RTSP·시뮬레이터 URL 을 확인하세요" 토스트가 **뜨지 않는다** |
+| 4-6 | `POST /api/db/cameras/1/test` | 응답의 `kind` 가 `'hucoms'` 이고, `ok:false` 일 때의 `error` 가 `알 수 없는 카메라 종류` 가 **아니다** |
+
+4-2~4-4 에서 **다른** 실패(타임아웃 등)가 나오면 그 응답을 그대로 기록해 리더에게 올린다. 이 계획에서 고치지 않는다.
+
+---
+
+### 5단계. 영향도 조사 지시 (문서화 담당에게)
+
+`kind`/`timeout_ms`/`park3d_cam_id`/`intrinsics` 가 **열 자체로 없었던 기간** 동안 DB 를 읽고 쓴 다른 경로에 남았을 2차 피해를 조사한다. 각 항목은 **결론 + 근거 경로**로 답한다.
+
+1. **`SetupRepository.upsertCamera` 가 아예 실패했는가** — INSERT 문이 `timeout_ms, kind, park3d_cam_id, intrinsics` 를 **열 이름으로 명시**한다(`src/db/setupRepository.ts:174`). 없는 열이므로 SQLite 가 `no such column` 으로 던졌을 것이다. 그렇다면 그 기간의 **카메라 추가(`POST /api/db/cameras`)·수정(`PUT`)·삭제 후 재등록이 전부 실패**했다는 뜻이다. 로그나 사용자 증언으로 확인하고, 실패한 편집이 있었는지 → 3-5 이후 다시 해야 하는 작업이 있는지 정리한다.
+2. **`dbRoutes.merged()`** (`src/api/routes/dbRoutes.ts:220`) — `current.kind`/`current.timeout_ms` 가 undefined 인 채로 patch 에 겹쳐졌다. 1번이 맞다면 저장이 던져서 **오염은 없었을** 가능성이 크다. 확인해 확정한다.
+3. **`POST /api/db/cameras/:id/test`(연결 테스트 버튼)** — `createDriver` 실패를 `ok:false` 로 200 에 실어 보낸다(`dbRoutes.ts:114`). 즉 화면에는 "연결 실패"로 보였다. 이 기간의 실패 보고는 **네트워크 문제가 아니었다** — 사용자에게 오해가 남았는지 확인.
+4. **장비 프리셋 라우트** — `src/api/routes/devicePresetRoutes.ts:23,34` 가 `camera.kind !== 'hucoms'` 면 **501** 로 거절한다. undefined 였으므로 **모든 카메라의 장비 프리셋 기능이 501 로 죽어 있었다.** 3단계 뒤 hucoms 3대에서 되살아나는지 확인.
+5. **`providerFactory`**(`src/core/providerFactory.ts:39`)와 `camera.timeoutMs` 를 그대로 `AbortSignal.timeout()` 으로 넘기는 경로들 — undefined 가 들어갔을 때 무슨 일이 났는지(즉시 abort / TypeError) 확인. 코어 프로바이더가 createDriver 이전에 죽는 경로가 있었는지.
+6. **DB 탭 테이블 뷰어**(`src/db/tableQuery.ts`, `web/` 뷰어) — `SELECT *` 기반이면 이제 열이 10→14 로 늘어난다. 열 목록을 굳혀 둔 자리(헤더 하드코딩, 열 수 가정)가 없는지 확인.
+7. **MCP 라우트 카탈로그**(`src/mcp/routeCatalog.ts`) — 카메라 `kind` 를 노출·분기하는 자리가 있으면 그동안 무엇을 답했는지 확인.
+8. **브리지 코어 박스줌**(`src/core/bridge/bridgeCoreProvider.ts:80,127`) — `intrinsics` 가 없으면 `centerBox` 가 501 로 거절된다. **다만 `config.json.bak-cameras` 에도 intrinsics 가 없었으므로 이번 버그 이전부터 꺼져 있었다.** 이 사실을 확인해 "이번 수정으로 켜지지 않는다"를 분명히 기록하고, 줌→화각 표를 채우는 일은 **별건**으로 올린다(확인 필요 B).
+9. **`park3d_cam_id`** — 4대 중 park3d-rpc 종류가 없으므로 피해 없음이 예상된다. 확인만 한다.
+10. **형제 프로젝트 영향 없음 확인** — 이번 변경은 `SettingMain` 안의 DB 계층에 갇힌다. `AgentVLA/ParkAgent/SettingAgent` 와의 계약을 바꾸지 않는다는 점을 명시한다.
 
 ---
 
 ## 영향 받는 파일/모듈
 
-**신규**
-- `SettingMain/src/devices/park3d/park3dRpcClient.ts`
-- `SettingMain/test/park3dRpcClient.test.ts`
-- `SettingMain/test/optionsPark3dUi.test.ts`
-
 **수정**
-- `SettingMain/src/config/types.ts` — `CameraKind` 확장, `camId?` 추가 (**`token?` 없음**, `PublicCamera` 불변)
-- `SettingMain/src/config/normalize.ts` — `CAMERA_KINDS`, `normalizeCamera`(`camId`) (**`toPublicCamera`·`mergeSettings` 불변**)
-- `SettingMain/src/devices/driverFactory.ts` — `case 'park3d-rpc'`
-- `SettingMain/config/config.json` — `simulator-2` 정정
-- `SettingMain/config/config.example.json` — park3d-rpc 예시 추가
-- `SettingMain/web/options.js` — `portPairWarning` kind 게이트 + 힌트 문구
-- `SettingMain/test/normalize.test.ts` — 신규 필드 케이스 보강
+- `SettingMain/src/db/schema.ts` — `SCHEMA_VERSION` 2→3, 머리말 주석 보강
+- `SettingMain/src/db/database.ts` — `migrate()` 조기 반환 제거, `upgradeToV2()` 무조건 호출, 스키마 대조 함수 추가, 낡은 주석 갱신
+- `SettingMain/test/database.test.ts` — 2단계 케이스 추가
 
-**확인만 (변경 없음)**: `src/media/frameSource.ts`, `src/media/httpMjpeg.ts`, `src/mcp/routeCatalog.ts`, `src/api/routes/devicePresetRoutes.ts`, `src/core/local/localCoreProvider.ts`, `src/domain/ptz.ts`, **`test/server.test.ts`**
+**읽기만 (수정 없음, 동작이 달라지는 쪽)**
+- `SettingMain/src/db/configCameras.ts` — `toCameraConfig()` 가 이제 실제 값을 반환
+- `SettingMain/src/db/setupRepository.ts` — INSERT 가 성공하기 시작
+- `SettingMain/src/devices/driverFactory.ts` — `default` 분기로 떨어지지 않게 된다
+- `SettingMain/src/api/routes/mediaRoutes.ts`, `ptzRoutes`·`devicePresetRoutes`·`dbRoutes`
+- `SettingMain/src/config/configStore.ts` — `readCameras()` 결과가 채워진다
 
-**문서화(documenter)에게 전달할 요지**
-- zoom raw 의 의미는 **기기 종류마다 다르다**: Hucoms 는 0~65535 의 **불투명 raw**(`src/domain/ptz.ts:4-11`), park3d-rpc 는 **배율×100**(100=1.0배, 3600=36배). 같은 화면의 같은 숫자칸이 기기에 따라 다른 뜻이라는 점을 반드시 명시할 것.
-- pan/tilt 는 두 종류 모두 centi-deg 로 일치하므로 `toView` 의 도 표시는 park3d-rpc 에서도 정확하다.
-- **park3d-rpc 는 인증을 쓰지 않는다** — 서버가 무인증으로 열려 있다는 실측 근거(§D2')와, 서버가 나중에 인증을 켜면 401/403 이 드라이버 오류로 즉시 드러난다는 점을 함께 적을 것. 형제 프로젝트 `SettingAgent` 는 `X-Park3D-Token` 을 배선하고 있으므로 **두 프로젝트의 차이**임을 명시해야 오해가 없다.
-- `camId` 는 1-based이며 park3d-rpc 카메라에 필수다(없으면 400).
+**데이터**
+- `SettingMain/config/setup.db`(+`-wal`,`-shm`) — 3단계에서 열 4개 추가 및 1행 수정
+- 백업: `SettingMain/config/backup/20260806_HHMMSS/`
 
----
+**손대지 않음**: `config.json`, `config.json.bak-cameras`(복구 근거이므로 **지우지 않는다**), `web/`, `src/vendor/`
 
 ## 비범위 (하지 않을 것)
 
-- `PtzRaw`·`clampPtz`·`toView`·PTZ 라우트·`web/control.js` 수정 (D1 — 변환은 드라이버에 가둔다)
-- `ZOOM_RANGE` 를 park3d 기준으로 바꾸기 (Hucoms 를 깨뜨린다. zoom 100~3600 클램프는 **드라이버 내부**에만 둔다)
-- `centerPoint` 를 park3d-rpc 에 지어내 구현하기 (선택 메서드다. 계약 없음)
-- 카메라 2번(`camId:2`) 등록 (D3)
-- **인증 배선 일체** — `token` 설정 필드, `PARK3D_RPC_TOKEN` 환경변수 폴백, `X-Park3D-Token` 헤더, `hasToken` 공개 필드, 토큰 마스킹 로직 (D2' — 서버가 무인증이다. 지금 없는 인증을 미리 만들지 않는다)
-- 옵션 화면에 kind·camId **입력칸 추가** (기존 테스트가 kind 필드를 금지. camId 는 `config.json` 직접 편집)
-- `cam.list` 로 카메라 자동 발견 / `/rpc/catalog` 79개 메서드의 범용 노출 (요청 범위 밖 — 지금 필요한 것은 드라이버 1종)
-- MCP 라우트 카탈로그 갱신·신규 REST 라우트 추가 (6단계에서 불필요함을 확인)
-- 프리셋·캘리브레이션·`preset.*` RPC 연동 (별도 과제)
-- ~~`/stream` 토큰 인증 대응~~ → **해당 사항 없음.** 2판 실측으로 `/stream` 이 무인증 200 임이 확정됐다
+- 마이그레이션 프레임워크(판별 파일 분리, 다운그레이드, 이력 표) 도입
+- `intrinsics`(줌→화각 표) 채워 넣기 — 이번 버그 이전부터 비어 있었다(확인 필요 B)
+- `cam_company` 값 정리 — 근거 없음(확인 필요 A)
+- 4단계에서 드러날 수 있는 **실제 카메라 통신 실패**(타임아웃·인증·502) 수정 — 별건으로 올린다
+- `sqlite3` 직접 UPDATE 나 일회성 보정 스크립트를 소스에 추가하는 것
+- 관련 없는 리팩토링(`database.ts`·`schema.ts` 의 나머지 주석·구조 손대지 않는다)

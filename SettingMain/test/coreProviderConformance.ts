@@ -26,18 +26,18 @@ import {
  * 읽기(status·list)가 아니라 **행위**를 고른다. 못 하는 기기에서도 "지금 idle 이다"를
  * 읽는 것은 거짓말이 아니지만, 못 하는 일을 **실행했는데 성공하는 것**은 거짓말이다.
  *
- * `Partial` 인 이유: `vehicleBox`·`slotCreate` 는 이름만 세워 두고 **포트가 아직 없다**.
- * 없는 메서드를 부를 수는 없으므로 프로브도 없다. 대신 아래 `checkUnsupportedRejects` 가
- * "실행 표면이 없는 능력을 `ok:true` 로 답하면 위반"이라고 못 박는다 — 포트를 만들면서
- * 여기 프로브를 빠뜨리면 그 순간 잡힌다.
+ * `Record`(부분이 아님)인 것이 안전장치다 — 능력 이름을 새로 만들면서 프로브를 빠뜨리면
+ * **컴파일이 깨진다.** 검사가 조용히 건너뛰는 능력이 생길 수 없다.
  */
-const INVOKE: Partial<Record<CoreCapabilityName, (provider: CoreProvider, ctx: CoreContext) => Promise<unknown>>> = {
+const INVOKE: Record<CoreCapabilityName, (provider: CoreProvider, ctx: CoreContext) => Promise<unknown>> = {
   center: (p, ctx) => p.center(ctx, { x: 960, y: 540 }),
   centerBox: (p, ctx) => p.centerBox(ctx, { startX: 100, startY: 100, endX: 300, endY: 300 }),
   discoveryPresets: (p, ctx) => p.discoveryPresets.create(ctx, { name: 'conformance' }),
   discoveryPoints: (p, ctx) => p.discoveryPoints.create(ctx, 'preset-1', { x: 10, y: 20 }),
   calibration: (p, ctx) => p.calibration.start(ctx, { mode: 'verify' }),
   plateHoming: (p, ctx) => p.plateHoming.start(ctx, { presetId: 'preset-1' }),
+  vehicleBox: (p, ctx) => p.vehicleBox.detect(ctx),
+  slotCreate: (p, ctx) => p.parkingSlots.create(ctx, { x: 960, y: 540 }),
 };
 
 // --- 판정 함수 (위반 목록을 돌려준다. 빈 배열 = 적합) ---------------------------
@@ -77,18 +77,9 @@ export function checkCapabilitiesShape(capabilities: CoreCapabilities, expectedP
 export async function checkUnsupportedRejects(provider: CoreProvider, ctx: CoreContext, capabilities: CoreCapabilities): Promise<string[]> {
   const violations: string[] = [];
   for (const name of CORE_CAPABILITY_NAMES) {
-    const invoke = INVOKE[name];
-    if (!invoke) {
-      // 실행 표면이 없는 능력은 할 수 있다고 답할 수 없다 — 부를 방법이 없는데 가능하다고
-      // 답하면 화면이 버튼을 켜고, 누른 사람은 아무 일도 일어나지 않는 것을 보게 된다.
-      if (capabilities.supported?.[name]?.ok === true) {
-        violations.push(`${name} 은(는) 실행 표면(포트)이 없는데 ok:true 로 답했습니다 — 포트를 만들었다면 INVOKE 에 프로브를 추가하세요`);
-      }
-      continue;
-    }
     if (capabilities.supported?.[name]?.ok !== false) continue;
     try {
-      await invoke(provider, ctx);
+      await INVOKE[name](provider, ctx);
       violations.push(`${name} 은(는) 미지원 선언인데 실행이 성공했습니다 — 조용한 성공은 추적 불가능한 실패가 됩니다`);
     } catch (error) {
       if (error instanceof CoreUnsupportedError) {

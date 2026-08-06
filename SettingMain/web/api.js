@@ -21,11 +21,27 @@ async function request(method, path, body) {
 
 export const api = {
   cameras: () => request('GET', '/api/cameras'),
+
+  // --- 커미셔닝 DB -------------------------------------------------------
+  // 편집을 여는 표는 셋뿐이다. 슬롯·주차상태는 커미셔닝이 만드는 산출물이라 뷰어에서 읽기만 한다.
+  dbTables: () => request('GET', '/api/db/tables'),
+  dbQuery: (query) => request('POST', '/api/db/query', query),
+  dbPlaces: () => request('GET', '/api/db/places'),
+  dbSavePlace: (place) => request('POST', '/api/db/places', place),
+  dbRenamePlace: (placeId, placeName) => request('PUT', `/api/db/places/${placeId}`, { place_name: placeName }),
+  dbRemovePlace: (placeId) => request('DELETE', `/api/db/places/${placeId}`),
+  dbCameras: () => request('GET', '/api/db/cameras'),
+  dbAddCamera: (camera) => request('POST', '/api/db/cameras', camera),
+  dbSaveCamera: (camId, patch) => request('PUT', `/api/db/cameras/${camId}`, patch),
+  dbRemoveCamera: (camId) => request('DELETE', `/api/db/cameras/${camId}`),
+  /** 저장하지 않고 지금 값으로 시험한다. 실패는 예외가 아니라 { ok:false } 로 온다. */
+  dbTestCamera: (camId, patch) => request('POST', `/api/db/cameras/${camId}/test`, patch ?? {}),
+  dbPresets: (camId) => request('GET', camId ? `/api/db/presets?cam_id=${camId}` : '/api/db/presets'),
+  dbAddPreset: (preset) => request('POST', '/api/db/presets', preset),
+  dbSavePreset: (camId, presetId, patch) => request('PUT', `/api/db/presets/${camId}/${presetId}`, patch),
+  dbRemovePreset: (camId, presetId) => request('DELETE', `/api/db/presets/${camId}/${presetId}`),
+
   setActiveCamera: (id) => request('POST', '/api/cameras/active', { id }),
-  addCamera: (camera) => request('POST', '/api/cameras', camera),
-  removeCamera: (id) => request('DELETE', `/api/cameras/${encodeURIComponent(id)}`),
-  /** camera 를 주면 저장하지 않은 값으로 시험한다. 실패는 예외가 아니라 { ok: false } 로 온다. */
-  testCamera: (id, camera) => request('POST', `/api/cameras/${encodeURIComponent(id)}/test`, camera ? { camera } : {}),
 
   ptz: (cameraId) => request('GET', `/api/ptz?cameraId=${encodeURIComponent(cameraId)}`),
   moveAbsolute: (cameraId, ptz) => request('POST', '/api/ptz/absolute', { cameraId, ...ptz }),

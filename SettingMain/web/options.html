@@ -12,10 +12,19 @@
     <nav>
       <a href="/">카메라 제어</a>
       <a href="/options" class="active">옵션</a>
+      <a href="/dbtable">DB 테이블</a>
     </nav>
   </header>
 
-  <main class="narrow">
+  <main class="narrow options">
+    <nav class="tabs" id="optionTabs">
+      <button type="button" data-panel="panelService" class="active">서비스 설정</button>
+      <button type="button" data-panel="panelPlace">장소 (place_info)</button>
+      <button type="button" data-panel="panelCamera">카메라 (camera_info)</button>
+      <button type="button" data-panel="panelPreset">프리셋 (preset_info)</button>
+    </nav>
+
+    <div id="panelService">
     <section class="card">
       <h2>코어 구현<span class="tag" id="coreTag">-</span></h2>
       <div class="body">
@@ -56,98 +65,150 @@
       </div>
     </section>
 
-    <section class="card">
-      <h2>기기 (장치)<span class="tag" id="activeTag">-</span></h2>
-      <div class="body">
-        <div class="row">
-          <div class="field" style="flex-basis:100%">
-            <label for="cameraSelect">카메라 선택</label>
-            <select id="cameraSelect"></select>
+    </div>
+
+    <div id="panelPlace" hidden>
+      <section class="card">
+        <h2>장소 (place_info)<span class="tag" id="placeCount">-</span></h2>
+        <div class="body">
+          <div class="table-scroll">
+            <table class="grid" id="placeTable">
+              <thead><tr><th style="width:90px">place_id</th><th>place_name</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
           </div>
+          <div class="row">
+            <div class="field" style="flex:0 0 96px"><label for="newPlaceId">place_id</label><input id="newPlaceId" type="number" min="1" value="1"></div>
+            <div class="field" style="flex:1"><label for="newPlaceName">place_name</label><input id="newPlaceName" placeholder="예: 본관 지하 1층"></div>
+            <button id="placeAdd" class="primary">+ 장소 추가</button>
+          </div>
+          <p class="hint">
+            같은 <code>place_id</code> 로 추가하면 이름이 바뀝니다(덮어쓰기).<br>
+            <b>쓰는 카메라가 있으면 지울 수 없습니다</b> — 먼저 그 카메라를 다른 장소로 옮기십시오.
+          </p>
         </div>
-        <div class="row">
-          <button id="makeActive">이 기기를 활성으로</button>
-          <button id="reload">전체 새로고침</button>
-        </div>
-        <p class="hint">활성 기기는 카메라 제어 페이지가 기본으로 사용하는 카메라입니다.</p>
+      </section>
+    </div>
 
-        <div class="row" style="margin-top:14px; border-top:1px solid var(--line); padding-top:14px">
-          <div class="field">
-            <label for="newCameraId">새 기기 ID</label>
-            <input id="newCameraId" type="text" placeholder="예: real-camera-3" maxlength="64">
+    <div id="panelCamera" hidden>
+      <section class="card">
+        <h2>카메라 (camera_info)<span class="tag" id="dbCameraCount">-</span></h2>
+        <div class="body">
+          <div class="row">
+            <div class="field" style="flex:0 0 200px">
+              <label for="camSelect">편집할 기기</label>
+              <select id="camSelect"></select>
+            </div>
+            <button id="camActivate">이 기기를 활성으로</button>
+            <span id="camActiveNote" class="muted"></span>
           </div>
 
-          <button id="addCamera">+ 기기 추가</button>
-        </div>
-        <p class="hint">ID 만 정하면 등록됩니다. 나머지 접속 정보는 아래 편집 폼에서 채우세요. ID 는 나중에 바꿀 수 없습니다.</p>
-      </div>
-    </section>
-
-    <section class="card" id="editCard">
-      <h2><span id="editTitle">기기 편집</span><span class="tag" id="dirtyTag" hidden>저장 안 됨</span></h2>
-      <div class="body">
-        <div class="row">
-          <div class="field">
-            <label for="fieldId">ID</label>
-            <input id="fieldId" type="text" readonly>
+          <div class="row">
+            <div class="field"><label for="camName">이름 (cam_name)</label><input id="camName"></div>
+            <div class="field" style="flex:0 0 150px">
+              <label for="camKind">종류 (kind)</label>
+              <select id="camKind">
+                <option value="hucoms">hucoms</option>
+                <option value="backend-core">backend-core</option>
+                <option value="park3d-rpc">park3d-rpc</option>
+              </select>
+            </div>
+            <div class="field" style="flex:0 0 110px">
+              <label for="camType">cam_type</label>
+              <select id="camType"><option value="ptz">ptz</option><option value="static">static</option></select>
+            </div>
           </div>
-          <div class="field">
-            <label for="fieldLabel">이름</label>
-            <input id="fieldLabel" data-field="label" type="text">
+
+          <div class="row">
+            <div class="field"><label for="camUrl">제어 URL (url)</label><input id="camUrl" placeholder="http://192.168.0.10:80"></div>
+            <div class="field" style="flex:0 0 120px"><label for="camUser">계정 (user_id)</label><input id="camUser"></div>
+            <div class="field" style="flex:0 0 150px">
+              <label for="camPassword">비밀번호<span id="camPasswordNote" class="muted"></span></label>
+              <input id="camPassword" type="password" placeholder="변경 시에만 입력">
+              <label class="muted" style="font-weight:normal">
+                <input id="camPasswordClear" type="checkbox"> 비밀번호 삭제
+              </label>
+            </div>
           </div>
-        </div>
 
-
-        <div class="row">
-          <div class="field" style="flex-basis:100%">
-            <label for="fieldControlUrl">제어 URL</label>
-            <input id="fieldControlUrl" data-field="controlUrl" type="text">
+          <div class="row">
+            <div class="field"><label for="camRtsp">영상 URL (rtsp_url)</label><input id="camRtsp" placeholder="rtsp://… · http://… · 비우면 스냅샷 폴링"></div>
+            <div class="field" style="flex:0 0 110px"><label for="camTimeout">timeout_ms</label><input id="camTimeout" type="number" min="500" max="60000"></div>
+            <div class="field" style="flex:0 0 120px"><label for="camPark3d">park3d_cam_id</label><input id="camPark3d" type="number" min="1" placeholder="park3d 전용"></div>
           </div>
-        </div>
+          <p class="hint" id="camStreamHint"></p>
 
-        <div class="row">
-          <div class="field">
-            <label for="fieldUsername">계정</label>
-            <input id="fieldUsername" data-field="username" type="text" autocomplete="off">
+          <div class="row">
+            <div class="field" style="flex:0 0 180px"><label for="camPlace">장소 (place_id)</label><select id="camPlace"></select></div>
           </div>
-          <div class="field">
-            <label for="fieldPassword">비밀번호</label>
-            <input id="fieldPassword" data-field="password" type="password" value="" autocomplete="new-password">
+
+          <div class="row">
+            <div class="field">
+              <label for="camIntrinsics">실측 줌→화각 표 (intrinsics · JSON)</label>
+              <input id="camIntrinsics" placeholder='{"zoomHfov":[{"z":0,"h":57.14},{"z":8000,"h":22.59}]} · 비우면 박스줌 꺼짐'>
+            </div>
           </div>
-        </div>
 
-        <div class="row">
-          <div class="field" style="flex-basis:100%">
-            <label for="fieldStreamUrl">영상 URL</label>
-            <input id="fieldStreamUrl" data-field="streamUrl" type="text" placeholder="rtsp://192.168.0.153:554/stream1">
+          <div class="row">
+            <button id="camApply" class="primary">이 기기 적용</button>
+            <button id="camTest">연결 테스트</button>
+            <button id="camRevert">되돌리기</button>
+            <button id="camDelete" class="danger">삭제</button>
+            <span id="camTestResult" class="muted"></span>
           </div>
-        </div>
-        <p class="hint" id="streamHint" style="margin:-4px 0 10px"></p>
 
-        <div class="row">
-          <div class="field">
-            <label for="fieldTimeout">타임아웃 (ms)</label>
-            <input id="fieldTimeout" data-field="timeoutMs" type="number" min="500" max="60000" step="100">
+          <div class="row">
+            <div class="field" style="flex:0 0 220px"><label for="camNewId">새 기기 ID (cam_uuid)</label><input id="camNewId" placeholder="real-camera-3"></div>
+            <div class="field" style="flex:0 0 150px">
+              <label for="camNewKind">종류</label>
+              <select id="camNewKind">
+                <option value="hucoms">hucoms</option>
+                <option value="backend-core">backend-core</option>
+                <option value="park3d-rpc">park3d-rpc</option>
+              </select>
+            </div>
+            <button id="camAdd" class="primary">+ 기기 추가</button>
           </div>
+
+          <p class="hint">
+            <b>카메라의 정본은 이 표입니다</b> — <code>config.json</code> 에는 더 이상 카메라가 없습니다.<br>
+            <b>비밀번호는 화면으로 돌아오지 않습니다</b> — 비워 두면 기존 값이 유지되고, 바꿀 때만 입력합니다.<br>
+            <b>영상 URL 은 스킴이 경로를 가릅니다</b> — <code>rtsp://</code> 는 ffmpeg 전사, <code>http://</code> 는 연속 MJPEG 중계, 비우면 스냅샷 폴링.<br>
+            「연결 테스트」는 <b>저장 없이</b> 지금 화면의 값으로 PTZ 를 한 번 읽어 봅니다 — 카메라를 움직이지 않습니다.<br>
+            <code>cam_uuid</code> 는 경로·URL 에 그대로 들어가므로 영문·숫자로 시작하고 <code>_ - .</code> 만 쓰며, <b>나중에 바꿀 수 없습니다.</b>
+          </p>
         </div>
+      </section>
+    </div>
 
-        <div class="row">
-          <button id="applyCamera" class="primary">이 기기 적용</button>
-          <button id="testCamera">연결 테스트</button>
-          <button id="revertCamera">되돌리기</button>
-          <button id="deleteCamera" class="danger" style="margin-left:auto">삭제</button>
+    <div id="panelPreset" hidden>
+      <section class="card">
+        <h2>프리셋 (preset_info)<span class="tag" id="dbPresetCount">-</span></h2>
+        <div class="body">
+          <div class="table-scroll">
+            <table class="grid" id="dbPresetTable">
+              <thead><tr><th style="width:74px">preset_id</th><th style="width:150px">cam_id</th><th>preset_name</th><th style="width:88px">pan</th><th style="width:88px">tilt</th><th style="width:88px">zoom</th><th style="width:150px">place_id</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="row">
+            <div class="field" style="flex:0 0 84px"><label for="newPresetCam">cam_id</label><input id="newPresetCam" type="number" min="1" value="1"></div>
+            <div class="field" style="flex:1"><label for="newPresetName">preset_name</label><input id="newPresetName" placeholder="예: 입구 와이드"></div>
+            <div class="field" style="flex:0 0 92px"><label for="newPresetPan">pan</label><input id="newPresetPan" type="number" value="0"></div>
+            <div class="field" style="flex:0 0 92px"><label for="newPresetTilt">tilt</label><input id="newPresetTilt" type="number" value="0"></div>
+            <div class="field" style="flex:0 0 92px"><label for="newPresetZoom">zoom</label><input id="newPresetZoom" type="number" value="0"></div>
+            <button id="presetAdd" class="primary">+ 프리셋 추가</button>
+          </div>
+          <p class="hint">
+            <code>preset_id</code> 는 <b>그 카메라 안에서</b> 1부터 자동으로 붙습니다.
+            좌표는 계약 좌표(pan 0~35999 · tilt −2000~9000 · zoom 0~65535)입니다.<br>
+            <code>preset_id</code>·<code>cam_id</code> 를 고치면 <b>그 안의 주차면(slot_setup)도 함께 옮겨집니다</b> —
+            이미 쓰고 있는 번호로는 옮길 수 없습니다.<br>
+            프리셋을 지우면 <b>그 안의 주차면이 함께 사라집니다</b> — 지우기 전에 몇 개인지 확인을 묻습니다.
+          </p>
         </div>
-
-        <div id="testResult" class="hint" style="margin:0 0 10px"></div>
-
-        <p class="hint">
-          「이 기기 적용」을 누르면 <code>config/config.json</code> 에 즉시 저장됩니다(재기동 불필요).<br>
-          비밀번호는 저장된 값이 화면으로 돌아오지 않습니다 — <b>비워 두면 기존 비밀번호가 유지</b>되고, 바꿀 때만 입력합니다.<br>
-          <b>영상 URL 은 스킴이 경로를 가릅니다</b> — <code>rtsp://</code> 는 ffmpeg 전사, <code>http://</code> 는 연속 MJPEG 중계(UE 시뮬 직결 포트), 비우면 스냅샷 폴링.<br>
-          「연결 테스트」는 <b>저장 없이</b> 지금 화면의 값으로 PTZ 를 한 번 읽어 봅니다 — 카메라를 움직이지 않습니다.
-        </p>
-      </div>
-    </section>
+      </section>
+    </div>
   </main>
 
   <div id="status"></div>

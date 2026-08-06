@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BridgeCoreProvider } from '../src/core/bridge/bridgeCoreProvider.js';
 import type { CoreContext } from '../src/core/coreProvider.js';
-import { normalizeConfig } from '../src/config/normalize.js';
+import { normalizeCamera, normalizeConfig } from '../src/config/normalize.js';
 import { CameraDriverError, type CameraDriver } from '../src/devices/cameraDriver.js';
 import { createDriver } from '../src/devices/driverFactory.js';
 import { Park3DRpcClient } from '../src/devices/park3d/park3dRpcClient.js';
@@ -203,20 +203,20 @@ describe('Park3DRpcClient 미지원 기능', () => {
 });
 
 describe('createDriver — 종류 분기의 유일한 지점', () => {
-  const config = normalizeConfig({
-    activeCameraId: 'sim-2',
-    cameras: [{ id: 'sim-2', kind: 'park3d-rpc', controlUrl: 'http://192.168.0.125:13510', streamUrl: 'http://192.168.0.125:13510/stream', camId: 1 }],
-  });
+  // 카메라의 정본이 DB 로 옮겨져 `normalizeConfig` 는 더 이상 cameras 를 읽지 않는다.
+  // 드라이버 조립은 카메라 1건 + 설정만 있으면 되므로 그 둘을 따로 만든다.
+  const config = normalizeConfig({ activeCameraId: 'sim-2' });
+  const camera = normalizeCamera({ id: 'sim-2', kind: 'park3d-rpc', controlUrl: 'http://192.168.0.125:13510', streamUrl: 'http://192.168.0.125:13510/stream', camId: 1 })!;
 
   it('park3d-rpc 설정은 Park3DRpcClient 로 조립된다', () => {
-    const driver = createDriver(config.cameras[0]!, config);
+    const driver = createDriver(camera, config);
     expect(driver).toBeInstanceOf(Park3DRpcClient);
     expect(driver.kind).toBe('park3d-rpc');
   });
 
   it('설정의 camId 가 드라이버까지 전달된다', async () => {
     const fetchImpl = mockFetch(() => jsonResponse(LIVE_GET_PTZ));
-    const driver = createDriver(config.cameras[0]!, config, fetchImpl as unknown as typeof fetch);
+    const driver = createDriver(camera, config, fetchImpl as unknown as typeof fetch);
     await driver.getPtz();
     expect((sentBody(fetchImpl).params as Record<string, number>).camId).toBe(1);
   });

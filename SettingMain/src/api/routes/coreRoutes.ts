@@ -85,6 +85,47 @@ export function createCoreRoutes(deps: CoreProviderDeps): RouteHandler {
       }
     }
 
+    // --- 차량 3D 육면체 ----------------------------------------------------
+    if (method === 'GET' && pathname === '/api/core/vehicle-box/status') {
+      sendJson(res, 200, await provider.vehicleBox.status(coreCtx));
+      return true;
+    }
+    if (method === 'POST' && pathname === '/api/core/vehicle-box') {
+      sendJson(res, 200, { provider: provider.name, ...(await provider.vehicleBox.detect(coreCtx)) });
+      return true;
+    }
+
+    // --- 커미셔닝 주차면 ---------------------------------------------------
+    // `/api/slots`(시뮬·로컬 목록)와 다른 것이다 — 여기는 사람이 확정해 저장한 조준해다.
+    if (pathname === '/api/core/slots') {
+      if (method === 'GET') {
+        sendJson(res, 200, { cameraId: camera.id, ...(await provider.parkingSlots.list(coreCtx)) });
+        return true;
+      }
+      if (method === 'POST') {
+        const input = {
+          x: requireCenterCoordinate(body!, 'x', 1920),
+          y: requireCenterCoordinate(body!, 'y', 1080),
+          ...(typeof body!.name === 'string' ? { name: body!.name } : {}),
+          ...(body!.box !== undefined ? { box: body!.box } : {}),
+        };
+        sendJson(res, 200, { cameraId: camera.id, ...(await provider.parkingSlots.create(coreCtx, input)) });
+        return true;
+      }
+    }
+    const slot = /^\/api\/core\/slots\/([^/]+)(\/goto)?$/.exec(pathname);
+    if (slot) {
+      const slotId = decodeURIComponent(slot[1]!);
+      if (slot[2] && method === 'POST') {
+        sendJson(res, 200, { cameraId: camera.id, ...(await provider.parkingSlots.goto(coreCtx, slotId)) });
+        return true;
+      }
+      if (!slot[2] && method === 'DELETE') {
+        sendJson(res, 200, { cameraId: camera.id, ...(await provider.parkingSlots.remove(coreCtx, slotId)) });
+        return true;
+      }
+    }
+
     // --- 잡(캘리브레이션·번호판 호밍) --------------------------------------
     const job = /^\/api\/core\/(calibration|plate-homing)\/(start|status|stop)$/.exec(pathname);
     if (job) {

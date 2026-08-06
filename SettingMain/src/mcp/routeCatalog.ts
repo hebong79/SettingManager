@@ -83,6 +83,25 @@ export const ROUTE_CATALOG: readonly RouteCatalogEntry[] = [
   { method: 'GET', path: '/api/core/plate-homing/status', title: '번호판 호밍 상태', mutating: false, movesCamera: false },
   { method: 'POST', path: '/api/core/plate-homing/stop', title: '번호판 호밍 중단', mutating: false, movesCamera: false },
 
+  {
+    method: 'GET', path: '/api/core/vehicle-box/status', title: '3D 차량 박스 준비 상태', mutating: false, movesCamera: false,
+    notes: '사이드카가 죽어 있어도 200 으로 사실을 답한다.',
+  },
+  {
+    method: 'POST', path: '/api/core/vehicle-box', title: '지금 프레임의 차량 3D 육면체', mutating: false, movesCamera: false,
+    notes: '본문 없음. 스냅샷은 서버가 뜬다. detections[] 는 추론 사이드카 어휘 그대로다.',
+  },
+  {
+    method: 'GET', path: '/api/core/slots', title: '커미셔닝 주차면 목록', mutating: false, movesCamera: false,
+    notes: '★ /api/slots(시뮬·로컬 목록)와 다른 것이다 — 사람이 확정해 저장한 조준해다.',
+  },
+  {
+    method: 'POST', path: '/api/core/slots', title: '커미셔닝 주차면 저장', mutating: true, movesCamera: false,
+    notes: '{ x, y, name?, box? } — 지금 자세를 그 주차면의 클로즈업으로 삼는다.',
+  },
+  { method: 'POST', path: '/api/core/slots/:id/goto', title: '주차면 조준해로 이동', mutating: false, movesCamera: true },
+  { method: 'DELETE', path: '/api/core/slots/:id', title: '커미셔닝 주차면 삭제', mutating: true, movesCamera: false },
+
   // --- 로컬 프리셋 ---------------------------------------------------------
   { method: 'GET', path: '/api/presets', title: '로컬 프리셋 목록', mutating: false, movesCamera: false, notes: '장비 내장 프리셋과는 별개의 정본이다.' },
   { method: 'POST', path: '/api/presets', title: '로컬 프리셋 추가', mutating: true, movesCamera: false, notes: '{ name, ptz? } — ptz 생략 시 현재 자세를 저장한다.' },
@@ -95,6 +114,30 @@ export const ROUTE_CATALOG: readonly RouteCatalogEntry[] = [
   { method: 'GET', path: '/api/cameras/:id/device-presets', title: '장비 프리셋 목록', mutating: false, movesCamera: false },
   { method: 'POST', path: '/api/cameras/:id/device-presets/:number/go', title: '장비 프리셋 이동', mutating: false, movesCamera: true, notes: '{ mode: preset|coordinate }' },
   { method: 'POST', path: '/api/cameras/:id/device-presets/:number/sync-coordinate', title: '장비 프리셋 좌표 학습', mutating: true, movesCamera: true, notes: '본문은 빈 객체.' },
+
+  // --- 커미셔닝 DB ----------------------------------------------------------
+  {
+    method: 'GET', path: '/api/db/tables', title: 'DB 테이블 목록 + 열', mutating: false, movesCamera: false,
+    notes: '열 목록은 SQLite 가 답한 것이다(PRAGMA). timeColumn 이 null 이면 기간 검색을 쓸 수 없다.',
+  },
+  {
+    method: 'POST', path: '/api/db/query', title: 'DB 테이블 조회', mutating: false, movesCamera: false,
+    notes: '{ table, text?, textColumn?, from?, to?, conditions?, orderBy?, limit?, offset? } — 테이블·열·비교는 화이트리스트다.',
+  },
+  { method: 'GET', path: '/api/db/places', title: '장소 목록', mutating: false, movesCamera: false },
+  { method: 'POST', path: '/api/db/places', title: '장소 추가·이름변경', mutating: true, movesCamera: false, notes: '{ place_id, place_name }' },
+  { method: 'PUT', path: '/api/db/places/:id', title: '장소 이름 변경', mutating: true, movesCamera: false },
+  { method: 'DELETE', path: '/api/db/places/:id', title: '장소 삭제', mutating: true, movesCamera: false, notes: '쓰는 카메라가 있으면 409.' },
+  { method: 'GET', path: '/api/db/cameras', title: 'DB 카메라 목록 (분류)', mutating: false, movesCamera: false },
+  {
+    method: 'PUT', path: '/api/db/cameras/:id', title: 'DB 카메라 분류 수정', mutating: true, movesCamera: false,
+    notes: 'cam_name·cam_type·place_id 만. **접속정보는 config.json 이 주인이다.**',
+  },
+  { method: 'DELETE', path: '/api/db/cameras/:id', title: 'DB 카메라 삭제', mutating: true, movesCamera: false, notes: '프리셋·주차면이 CASCADE 로 함께 사라진다.' },
+  { method: 'GET', path: '/api/db/presets', title: 'DB 프리셋 목록', mutating: false, movesCamera: false, notes: '?cam_id= 로 좁힌다.' },
+  { method: 'POST', path: '/api/db/presets', title: 'DB 프리셋 추가', mutating: true, movesCamera: false, notes: '{ cam_id, preset_name, pos{pan,tilt,zoom}, place_id? }' },
+  { method: 'PUT', path: '/api/db/presets/:camId/:presetId', title: 'DB 프리셋 수정', mutating: true, movesCamera: false, notes: '본문에 cam_id·preset_id 를 주면 그 자리로 옮긴다 — 주차면도 함께 간다(movedSlots 로 답한다).' },
+  { method: 'DELETE', path: '/api/db/presets/:camId/:presetId', title: 'DB 프리셋 삭제', mutating: true, movesCamera: false, notes: '그 안의 주차면이 함께 사라진다(removedSlots 로 답한다).' },
 
   // --- API 계층 (VPD·LPD·LPR) -----------------------------------------------
   {

@@ -1,12 +1,14 @@
 import type {
   AppConfig,
   CameraConfig,
+  CameraIntrinsics,
   CameraKind,
   CameraPatch,
   CoreConfig,
   CoreProviderChoice,
   DetectorEndpointConfig,
   DetectorsConfig,
+  Object3dConfig,
   PublicCamera,
   SettingsPatch,
   StreamingConfig,
@@ -57,6 +59,9 @@ export function normalizeCamera(raw: unknown): CameraConfig | null {
   if (!id) return null;
   const kind = CAMERA_KINDS.includes(r.kind as CameraKind) ? (r.kind as CameraKind) : 'hucoms';
   const camId = positiveInt(r.camId);
+  const intrinsics = normalizeIntrinsics(r.intrinsics);
+  // 장소는 문서 규약대로 1 이 기본이다. 잘못 적힌 값은 1 로 되돌린다 — 없는 장소를 가리키면 DB 가 거절한다.
+  const placeId = positiveInt(r.place_id) ?? 1;
   return {
     id,
     label: str(r.label) || id,
@@ -69,7 +74,30 @@ export function normalizeCamera(raw: unknown): CameraConfig | null {
     timeoutMs: int(r.timeoutMs, 5000, 500, 60_000),
     // park3d-rpc 가 아닌 카메라에는 키 자체가 생기지 않는다(공개 응답의 키 집합을 넓히지 않는다).
     ...(camId !== undefined ? { camId } : {}),
+    ...(intrinsics !== undefined ? { intrinsics } : {}),
+    place_id: placeId,
   };
+}
+
+/**
+ * 실측 줌→화각 곡선. **쓸 수 있는 표일 때만** 만든다 — 앵커 2개 미만이거나 z 가 오름차순이
+ * 아니면 보간이 성립하지 않는다. 반쯤 맞는 표로 조준하면 조용히 빗나가므로, 못 쓰는 표는
+ * 고쳐 주지 않고 **없는 것으로** 둔다(그러면 능력이 꺼지고 사유가 화면에 뜬다).
+ */
+function normalizeIntrinsics(raw: unknown): CameraIntrinsics | undefined {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  if (!Array.isArray(r.zoomHfov)) return undefined;
+  const rows: Array<{ z: number; h: number }> = [];
+  for (const entry of r.zoomHfov) {
+    const e = (entry && typeof entry === 'object' ? entry : {}) as Record<string, unknown>;
+    const z = Number(e.z);
+    const h = Number(e.h);
+    if (!Number.isFinite(z) || !Number.isFinite(h) || h <= 0) return undefined;
+    rows.push({ z, h });
+  }
+  if (rows.length < 2) return undefined;
+  if (rows.some((row, i) => i > 0 && row.z <= rows[i - 1]!.z)) return undefined;
+  return { zoomHfov: rows };
 }
 
 export function stripTrailingSlash(url: string): string {
@@ -84,13 +112,10 @@ export function normalizeConfig(raw: unknown): AppConfig {
   const streaming = (r.streaming ?? {}) as Record<string, unknown>;
   const core = normalizeCore(r.core);
 
-  const cameras = (Array.isArray(r.cameras) ? r.cameras : [])
-    .map(normalizeCamera)
-    .filter((c): c is CameraConfig => c !== null);
-  if (cameras.length === 0) throw new ConfigError('config.json 에 카메라가 1개 이상 있어야 합니다');
-
-  const requested = str(r.activeCameraId);
-  const activeCameraId = cameras.some((c) => c.id === requested) ? requested : cameras[0]!.id;
+  // **카메라는 여기서 오지 않는다.** 정본은 DB(`camera_info`)이고 `ConfigStore.load()` 가 채운다.
+  // 빈 배열로 두는 이유: 읽는 쪽(`driverFactory`·라우트·화면)이 예전처럼 `config.cameras` 를
+  // 그대로 보게 하기 위해서다 — 그 배열이 어디서 오는가만 바뀌었다.
+  const cameras: CameraConfig[] = [];
 
   return {
     server: {
@@ -107,8 +132,21 @@ export function normalizeConfig(raw: unknown): AppConfig {
     },
     core,
     detectors: normalizeDetectors(r.detectors),
-    activeCameraId,
+    object3d: normalizeObject3d(r.object3d),
+    // 가리키는 기기가 실제로 있는지는 카메라를 채운 **뒤에** 판정한다(ConfigStore.pickActive).
+    activeCameraId: str(r.activeCameraId),
     cameras,
+  };
+}
+
+/** 3D 차량 박스 사이드카. `baseUrl` 이 비면 브리지의 `vehicleBox` 능력이 꺼진다. */
+export function normalizeObject3d(raw: unknown): Object3dConfig {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  return {
+    baseUrl: stripTrailingSlash(str(r.baseUrl)),
+    // 상류(baro_calory object3d-client.mjs)의 기본 별칭과 같은 값이다.
+    model: str(r.model) || 'object3d-primary',
+    timeoutMs: int(r.timeoutMs, 30_000, 500, 120_000),
   };
 }
 
@@ -188,14 +226,6 @@ export function mergeSettings(current: AppConfig, patch: SettingsPatch): AppConf
     ...current,
     core: patch.core ? normalizeCore({ ...current.core, ...patch.core }) : current.core,
     simulator: { baseUrl: patch.simulator?.baseUrl !== undefined ? stripTrailingSlash(str(patch.simulator.baseUrl)) : current.simulator.baseUrl },
-    cameras: current.cameras.map((camera) => {
-      const change = patch.cameras?.find((c) => c.id === camera.id);
-      if (!change) return camera;
-      const merged = normalizeCamera({ ...camera, ...promoteLegacyFields(change), password: undefined });
-      if (!merged) return camera;
-      const password = typeof change.password === 'string' && change.password.length > 0 ? change.password : camera.password;
-      return { ...merged, password };
-    }),
   };
 
   if (patch.activeCameraId !== undefined) {
@@ -206,37 +236,4 @@ export function mergeSettings(current: AppConfig, patch: SettingsPatch): AppConf
     next.activeCameraId = requested;
   }
   return next;
-}
-
-/** 기기 ID 규칙: 경로·파일명·URL 에 그대로 들어가므로 안전한 문자만 허용한다. */
-const ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
-
-/** 새 기기를 등록한다. 채우지 않은 필드는 정규화 기본값이 들어간다. */
-export function addCamera(current: AppConfig, input: Partial<CameraConfig> & { id: string }): { config: AppConfig; camera: CameraConfig } {
-  const id = str(input.id);
-  if (!ID_RE.test(id)) {
-    throw new ConfigError('기기 ID 는 영문·숫자로 시작하고 영문·숫자·`_ - .` 만 쓸 수 있습니다 (최대 64자)');
-  }
-  if (current.cameras.some((c) => c.id === id)) {
-    throw new ConfigError(`이미 있는 기기 ID 입니다: ${id}`, 409);
-  }
-  const camera = normalizeCamera({ ...input, id, label: str(input.label) || id });
-  if (!camera) throw new ConfigError('기기를 만들 수 없습니다');
-  return { config: { ...current, cameras: [...current.cameras, camera] }, camera };
-}
-
-/**
- * 기기를 지운다.
- * 마지막 한 대는 지울 수 없다 — 조작할 대상이 없는 설정은 다음 기동에서 로드 자체가 실패한다.
- * 활성 기기를 지우면 남은 첫 기기로 활성이 옮겨 간다(활성이 유령 id 를 가리키지 않게).
- */
-export function removeCamera(current: AppConfig, id: string): { config: AppConfig; removed: CameraConfig } {
-  const removed = current.cameras.find((c) => c.id === id);
-  if (!removed) throw new ConfigError(`등록되지 않은 카메라입니다: ${id}`, 404);
-  if (current.cameras.length === 1) {
-    throw new ConfigError('마지막 기기는 삭제할 수 없습니다 — 최소 1개가 있어야 합니다', 409);
-  }
-  const cameras = current.cameras.filter((c) => c.id !== id);
-  const activeCameraId = current.activeCameraId === id ? cameras[0]!.id : current.activeCameraId;
-  return { config: { ...current, cameras, activeCameraId }, removed };
 }

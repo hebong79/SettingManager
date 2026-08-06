@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import type { Server } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createServer } from '../src/api/server.js';
+import { openDatabase } from '../src/db/database.js';
 import { ConfigStore } from '../src/config/configStore.js';
 import { PresetStore } from '../src/store/presetStore.js';
 import { SlotStore } from '../src/store/slotStore.js';
@@ -79,7 +80,10 @@ async function start(detectors: unknown): Promise<void> {
     }),
   );
 
-  const configStore = new ConfigStore(join(dir, 'config.json'));
+  // 카메라의 정본은 DB 다. config.json 의 cameras[] 는 load() 가 1회 이관하고 파일에서 지운다 —
+  // 그래서 하네스는 예전처럼 config 에 카메라를 적어 두면 되고, 이관 경로도 매번 검증된다.
+  const db = openDatabase({ path: ':memory:' });
+  const configStore = new ConfigStore(join(dir, 'config.json'), db);
   await configStore.load();
   const presetStore = new PresetStore(join(dir, 'presets.json'), () => '2026-08-05T00:00:00.000Z');
   await presetStore.load();
@@ -88,7 +92,7 @@ async function start(detectors: unknown): Promise<void> {
   const devicePresetRegistryStore = new DevicePresetRegistryStore(join(dir, 'device-preset-registry.json'), () => '2026-08-05T00:00:00.000Z');
   await devicePresetRegistryStore.load();
 
-  server = createServer({ configStore, presetStore, slotStore, devicePresetRegistryStore, fetchImpl: fakeFetch, settleOptions: { sleep: async () => {} } });
+  server = createServer({ configStore, presetStore, slotStore, devicePresetRegistryStore, db, fetchImpl: fakeFetch, settleOptions: { sleep: async () => {} } });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
