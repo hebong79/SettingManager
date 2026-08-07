@@ -107,8 +107,16 @@ export interface PresetGroup {
  * 7번이 6번이 되어 시뮬레이터에 밀어 넣을 때 다른 프리셋을 덮는다.
  */
 export async function readPresetFile(name: string, root = SAVE_ROOT): Promise<PresetGroup[]> {
-  const parsed = await readJson(name, 'preset', root);
-  const rows = (parsed as { datas?: unknown }).datas;
+  return parsePresets(await readJson(name, 'preset', root), name);
+}
+
+/**
+ * 해석은 **읽기와 분리돼 있다.** 사람이 PC 에서 연 파일도 저장 폴더의 파일과 **같은
+ * 해석기·같은 좌표 변환**을 타야 한다 — 브라우저에서 따로 해석하면 축 규약이 두 벌이 되고,
+ * 그 실패는 화면에 오류로 뜨지 않는다(좌표가 그럴듯하게 틀린다).
+ */
+export function parsePresets(parsed: unknown, name = '(업로드)'): PresetGroup[] {
+  const rows = (parsed as { datas?: unknown } | null)?.datas;
   if (!Array.isArray(rows)) throw new SimFileError(`${name} 에 datas 배열이 없습니다`, 422);
 
   return rows.map((raw, index) => {
@@ -155,8 +163,11 @@ export interface CarPlacement {
  * ```
  */
 export async function readCarFile(name: string, root = SAVE_ROOT): Promise<CarPlacement[]> {
-  const parsed = await readJson(name, 'car', root);
-  const rows = (parsed as { datas?: unknown }).datas;
+  return parseCars(await readJson(name, 'car', root), name);
+}
+
+export function parseCars(parsed: unknown, name = '(업로드)'): CarPlacement[] {
+  const rows = (parsed as { datas?: unknown } | null)?.datas;
   if (!Array.isArray(rows)) throw new SimFileError(`${name} 에 datas 배열이 없습니다`, 422);
 
   return rows.map((raw) => {
@@ -196,8 +207,11 @@ export interface CameraPlacement {
  * pan, tilt, zoom, ptzmin, ptzmax}` 다.
  */
 export async function readCameraFile(name: string, root = SAVE_ROOT): Promise<CameraPlacement[]> {
-  const parsed = await readJson(name, 'camera', root);
-  const outer = (parsed as { datas?: unknown }).datas;
+  return parseCameras(await readJson(name, 'camera', root), name);
+}
+
+export function parseCameras(parsed: unknown, name = '(업로드)'): CameraPlacement[] {
+  const outer = (parsed as { datas?: unknown } | null)?.datas;
   if (!Array.isArray(outer)) throw new SimFileError(`${name} 에 datas 배열이 없습니다`, 422);
 
   const out: CameraPlacement[] = [];
@@ -231,6 +245,16 @@ export async function readCameraFile(name: string, root = SAVE_ROOT): Promise<Ca
   }
   return out;
 }
+
+/** 종류 하나에 해석기 하나. 라우트가 `if (kind === …)` 를 세 번 쓰지 않게 한다. */
+export const PARSERS = {
+  preset: parsePresets,
+  car: parseCars,
+  camera: parseCameras,
+} as const satisfies Record<SaveKind, (parsed: unknown, name?: string) => unknown>;
+
+/** 해석 결과를 담는 키 이름. 저장 폴더 응답과 업로드 응답이 같은 모양이어야 한다. */
+export const RESULT_KEY = { preset: 'presets', car: 'cars', camera: 'cameras' } as const satisfies Record<SaveKind, string>;
 
 // --- 내부 ---------------------------------------------------------------------
 

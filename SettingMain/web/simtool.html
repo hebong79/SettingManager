@@ -60,8 +60,14 @@
                 사람이 그린 배치가 거기 안 보입니다.
               </p>
               <div class="row">
-                <div class="field"><label for="spFile">저장 파일</label><select id="spFile"></select></div>
+                <div class="field"><label for="spFile">저장 파일 (save/3D/Preset)</label><select id="spFile"></select></div>
                 <button id="spReload" type="button">다시 읽기</button>
+              </div>
+              <div class="row">
+                <button id="spOpen" class="primary" type="button">열기…</button>
+                <span class="hint" id="spSource">-</span>
+                <!-- 브라우저 파일 대화상자. 보이지 않고 「열기…」가 대신 눌러 준다. -->
+                <input id="spOpenInput" type="file" accept=".json,application/json" hidden>
               </div>
               <div class="row">
                 <div class="field"><label for="spList">프리셋</label><select id="spList" size="6"></select></div>
@@ -217,11 +223,24 @@
                 <button id="carDelete" class="danger" type="button">선택 삭제</button>
               </div>
               <div class="row">
-                <div class="field"><label for="carFile">파일명</label><input id="carFile" placeholder="CarPos_Seoshin_2Cam.json"></div>
-                <button id="carSave" type="button">저장</button>
-                <button id="carLoad" type="button">열기</button>
-                <button id="carClear" class="danger" type="button">초기화</button>
+                <div class="field"><label for="carFile">저장 파일 (save/3D/CarPos)</label><select id="carFile"></select></div>
+                <button id="carReload" type="button">다시 읽기</button>
               </div>
+              <div class="row">
+                <button id="carOpen" class="primary" type="button">열기…</button>
+                <span class="hint" id="carSource">-</span>
+                <input id="carOpenInput" type="file" accept=".json,application/json" hidden>
+              </div>
+              <div class="row">
+                <button id="carPush" class="danger" type="button">시뮬로 보내기</button>
+                <button id="carSimSave" type="button">시뮬에 저장</button>
+                <button id="carClear" class="danger" type="button">시뮬 차량 초기화</button>
+              </div>
+              <p class="hint">
+                <strong>「열기…」는 이 PC 의 파일</strong>을 고릅니다. 「시뮬로 보내기」는 그 내용을
+                시뮬레이터에 넣습니다 — <code>car.clear</code> 로 시작하므로 <strong>시뮬레이터의
+                기존 차량이 전부 사라집니다.</strong>
+              </p>
             </div>
           </section>
         </div>

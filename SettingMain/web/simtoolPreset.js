@@ -1,3 +1,5 @@
+import { wireOpenDialog } from './simtoolOpen.js';
+
 const el = (id) => document.getElementById(id);
 const fmt = (v, digits = 3) => (typeof v === 'number' && Number.isFinite(v) ? v.toFixed(digits) : '-');
 
@@ -30,6 +32,13 @@ const fmt = (v, digits = 3) => (typeof v === 'number' && Number.isFinite(v) ? v.
  */
 export function createPresetPanel(ctx) {
   let presets = [];
+  /** 지금 목록이 어디서 왔는가. 사람이 「보내기」 전에 무엇을 보내는지 알아야 한다. */
+  let source = '';
+
+  function setSource(text) {
+    source = text;
+    el('spSource').textContent = text || '-';
+  }
 
   const selected = () => presets.find((preset) => String(preset.idx) === el('spList').value);
 
@@ -88,11 +97,30 @@ export function createPresetPanel(ctx) {
 
   async function loadSelectedFile() {
     const name = el('spFile').value;
-    if (!name) { presets = []; renderList(); return; }
+    if (!name) { presets = []; setSource(''); renderList(); return; }
     const data = await ctx.file('preset', name);
     presets = data.presets ?? [];
+    setSource(`save/3D/Preset/${name} · ${presets.length}개`);
     renderList();
   }
+
+  // 「열기…」 — 이 PC 의 파일. 해석은 서버가 한다(simtoolOpen.js 주석 참조).
+  wireOpenDialog({
+    input: el('spOpenInput'),
+    button: el('spOpen'),
+    kind: 'preset',
+    parse: ctx.parseFile,
+    onError: ctx.reportError,
+    onLoad: (result, fileName) => {
+      presets = result.presets ?? [];
+      // 폴더 드롭다운의 선택을 **푼다** — 목록은 PC 파일 것인데 드롭다운이 다른 이름을
+      // 가리키고 있으면 「시뮬에 저장」이 엉뚱한 이름으로 나간다.
+      el('spFile').value = '';
+      setSource(`내 PC · ${fileName} · ${presets.length}개`);
+      renderList();
+      ctx.toast(`${fileName} 에서 프리셋 ${presets.length}개를 읽었습니다`, 'ok');
+    },
+  });
 
   // --- 시뮬로 보내기 -------------------------------------------------------
 
@@ -107,10 +135,11 @@ export function createPresetPanel(ctx) {
    * 지어낸 번호를 보내면 다른 프리셋을 덮는다 — 그래서 **보낸 순서와 결과를 함께 보고한다.**
    */
   async function push() {
-    if (!presets.length) throw new Error('보낼 프리셋이 없습니다 — 저장 파일을 고르세요');
-    const name = el('spFile').value;
+    if (!presets.length) throw new Error('보낼 프리셋이 없습니다 — 파일을 고르거나 「열기…」로 여세요');
+    // **어디서 온 목록인지 확인 문구에 적는다.** 폴더 파일과 PC 파일이 섞여 있을 수 있고,
+    // 이 동작은 되돌릴 수 없다 — 무엇을 보내는지 모르고 누르면 안 된다.
     if (!confirm(
-      `${name} 의 주차면 프리셋 ${presets.length}개를 시뮬레이터로 보냅니다.\n\n`
+      `${source} 의 주차면 프리셋 ${presets.length}개를 시뮬레이터로 보냅니다.\n\n`
       + '⚠ 시뮬레이터의 기존 주차면이 **전부 사라집니다** — 시뮬레이터 UI 로 그린 것도 포함됩니다.\n\n'
       + '계속할까요?',
     )) return;
@@ -197,14 +226,16 @@ export function createPresetPanel(ctx) {
 
   el('spSimSave').addEventListener('click', guard(async () => {
     const fileName = el('spFile').value;
-    if (!fileName) throw new Error('파일을 고르세요');
+    // PC 파일을 연 상태에서는 폴더 이름이 없다 — 시뮬레이터에 어떤 이름으로 저장할지
+    // 알 수 없으므로 지어내지 않고 고르게 한다.
+    if (!fileName) throw new Error('저장 파일 드롭다운에서 이름을 고르세요 (「열기…」로 연 PC 파일은 이름이 시뮬레이터에 없습니다)');
     await ctx.rpc('preset.save', { fileName });
     ctx.toast(`시뮬레이터 디스크에 ${fileName} 로 저장했습니다`, 'ok');
   }));
 
   el('spSimLoad').addEventListener('click', guard(async () => {
     const fileName = el('spFile').value;
-    if (!fileName) throw new Error('파일을 고르세요');
+    if (!fileName) throw new Error('저장 파일 드롭다운에서 이름을 고르세요');
     if (!confirm(`시뮬레이터가 자기 디스크의 ${fileName} 을 엽니다.\n\n⚠ 지금 시뮬레이터에 있는 주차면이 대체됩니다.\n\n계속할까요?`)) return;
     await ctx.rpc('preset.load', { fileName });
     ctx.toast(`시뮬레이터가 ${fileName} 을 열었습니다`, 'ok');

@@ -2,7 +2,8 @@ import { readJsonBody, sendJson } from '../httpUtil.js';
 import { SIM_CATALOG } from '../../sim/simCatalog.js';
 import { loadCarCatalog } from '../../sim/carCatalog.js';
 import {
-  SimFileError, isSaveKind, listSimFiles, readCameraFile, readCarFile, readPresetFile,
+  PARSERS, RESULT_KEY, SimFileError, isSaveKind, listSimFiles,
+  readCameraFile, readCarFile, readPresetFile,
 } from '../../sim/simFiles.js';
 import { SimRpcClient, SimRpcError } from '../../sim/simRpcClient.js';
 import type { RouteHandler } from './routeContext.js';
@@ -53,6 +54,19 @@ export const simRoutes: RouteHandler = async (ctx) => {
     return true;
   }
 
+  // 사람이 **PC 에서 연 파일**. 브라우저가 내용을 보내고 해석은 여기서 한다 —
+  // 저장 폴더의 파일과 **같은 해석기·같은 좌표 변환**을 타야 축 규약이 한 벌로 남는다.
+  const upload = /^\/api\/sim\/files\/([a-z]+)\/parse$/.exec(pathname);
+  if (upload && method === 'POST') {
+    const kind = upload[1]!;
+    if (!isSaveKind(kind)) throw new SimFileError(`알 수 없는 저장 종류입니다: ${kind}`);
+    // 배치 파일은 커질 수 있다(실측 차량 65대 9.5KB) — 기본 256KB 보다 넉넉히 잡는다.
+    const body = await readJsonBody(req, 4 * 1024 * 1024);
+    const name = typeof body.name === 'string' && body.name.trim() ? body.name : '(업로드)';
+    sendJson(res, 200, { kind, name, source: 'upload', [RESULT_KEY[kind]]: PARSERS[kind](body.data, name) });
+    return true;
+  }
+
   const file = /^\/api\/sim\/files\/([a-z]+)\/(.+)$/.exec(pathname);
   if (file && method === 'GET') {
     const kind = file[1]!;
@@ -60,9 +74,9 @@ export const simRoutes: RouteHandler = async (ctx) => {
     const name = decodeURIComponent(file[2]!);
     // 좌표는 **읽어 주는 이 자리에서** RPC 계로 바꾼다(simCoords). 화면이 두 좌표계를
     // 동시에 들고 있으면 반드시 섞인다.
-    if (kind === 'preset') { sendJson(res, 200, { kind, name, presets: await readPresetFile(name) }); return true; }
-    if (kind === 'car') { sendJson(res, 200, { kind, name, cars: await readCarFile(name) }); return true; }
-    sendJson(res, 200, { kind, name, cameras: await readCameraFile(name) });
+    if (kind === 'preset') { sendJson(res, 200, { kind, name, source: 'folder', presets: await readPresetFile(name) }); return true; }
+    if (kind === 'car') { sendJson(res, 200, { kind, name, source: 'folder', cars: await readCarFile(name) }); return true; }
+    sendJson(res, 200, { kind, name, source: 'folder', cameras: await readCameraFile(name) });
     return true;
   }
 

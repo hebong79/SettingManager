@@ -1,4 +1,5 @@
 import { CAR_TYPES, prefabName } from './simtoolCatalog.js';
+import { wireOpenDialog } from './simtoolOpen.js';
 
 const el = (id) => document.getElementById(id);
 const num = (id) => Number(el(id).value);
@@ -34,6 +35,77 @@ export function createCarPanel(ctx) {
   let cars = [];
   /** `config/car_catalog.json` 에서 온 프리팹 목록. 못 읽었으면 **비어 있고 화면이 그렇게 말한다.** */
   let prefabs = [];
+  /** 「열기…」·드롭다운으로 읽어 둔 배치. 시뮬레이터의 현재 상태와 **다른 것**이다. */
+  let loaded = [];
+  let source = '';
+
+  function setSource(text) {
+    source = text;
+    el('carSource').textContent = text || '-';
+  }
+
+  async function loadFileList() {
+    const { files } = await ctx.files('car');
+    const previous = el('carFile').value;
+    el('carFile').replaceChildren(...files.map((file) => {
+      const option = new Option(file.name, file.name);
+      option.title = `${(file.sizeBytes / 1024).toFixed(1)} KB · ${file.modifiedAt.slice(0, 16).replace('T', ' ')}`;
+      return option;
+    }));
+    if (previous && files.some((file) => file.name === previous)) el('carFile').value = previous;
+  }
+
+  async function loadSelectedFile() {
+    const name = el('carFile').value;
+    if (!name) { loaded = []; setSource(''); return; }
+    const data = await ctx.file('car', name);
+    loaded = data.cars ?? [];
+    setSource(`save/3D/CarPos/${name} · ${loaded.length}대`);
+  }
+
+  /**
+   * 파일의 배치를 시뮬레이터에 밀어 넣는다.
+   *
+   * `car.clear` 로 시작하므로 **시뮬레이터의 기존 차량이 전부 사라진다.** 좌표는 서버가
+   * 이미 RPC 계로 바꿔 준 것을 그대로 보낸다 — 여기서 축을 다시 만지면 두 벌이 된다.
+   */
+  async function push() {
+    if (!loaded.length) throw new Error('보낼 배치가 없습니다 — 파일을 고르거나 「열기…」로 여세요');
+    if (!confirm(
+      `${source} 의 차량 ${loaded.length}대를 시뮬레이터로 보냅니다.
+
+`
+      + '⚠ 시뮬레이터의 기존 차량이 **전부 사라집니다.**
+
+계속할까요?',
+    )) return;
+
+    await ctx.rpc('car.clear');
+    let sent = 0;
+    const failed = [];
+    for (const car of loaded) {
+      try {
+        await ctx.rpc('car.create', {
+          pos: car.pos,
+          prefabId: car.prefabId,
+          presetId: car.presetId,
+          rotY: car.rotY,
+          isFront: car.isFront,
+        });
+        sent += 1;
+      } catch (error) {
+        // 멈추면 시뮬레이터가 **반쯤 지워진** 상태로 남는다. 끝까지 보내고 모아서 보고한다.
+        failed.push(`${car.id} (${error.message})`);
+        // 같은 사유로 전부 실패할 것이 뻔하면 그만둔다 — 65번 반복해 봐야 같은 오류다.
+        if (failed.length >= 5) { failed.push(`… 이후 중단 (${loaded.length - sent - failed.length + 1}대 남음)`); break; }
+      }
+    }
+    await reload();
+    ctx.toast(
+      `${sent}/${loaded.length}대를 보냈습니다.` + (failed.length ? ` 실패: ${failed.join(' / ')}` : ''),
+      failed.length ? 'err' : 'ok',
+    );
+  }
 
   async function fillCatalogs() {
     if (!el('carType').options.length) {
@@ -149,23 +221,35 @@ export function createCarPanel(ctx) {
     await reload();
   }));
 
-  el('carSave').addEventListener('click', guard(async () => {
-    const fileName = el('carFile').value.trim();
-    if (!fileName) throw new Error('파일명을 입력하세요');
-    await ctx.rpc('car.save', { fileName });
-    ctx.toast(`시뮬레이터에 ${fileName} 로 저장했습니다`, 'ok');
-  }));
+  el('carFile').addEventListener('change', guard(loadSelectedFile));
+  el('carReload').addEventListener('click', guard(async () => { await loadFileList(); await loadSelectedFile(); }));
+  el('carPush').addEventListener('click', guard(push));
 
-  el('carLoad').addEventListener('click', guard(async () => {
-    const fileName = el('carFile').value.trim();
-    if (!fileName) throw new Error('파일명을 입력하세요');
-    await ctx.rpc('car.load', { fileName });
-    await reload();
-    ctx.toast(`${fileName} 을 열었습니다 (차량 ${cars.length}대).`, 'ok');
+  // 「열기…」 — 이 PC 의 파일. 해석·좌표변환은 서버가 한다(`simtoolOpen.js`).
+  wireOpenDialog({
+    input: el('carOpenInput'),
+    button: el('carOpen'),
+    kind: 'car',
+    parse: ctx.parseFile,
+    onError: ctx.reportError,
+    onLoad: (result, fileName) => {
+      loaded = result.cars ?? [];
+      // 폴더 선택을 푼다 — 「시뮬에 저장」이 엉뚱한 이름으로 나가지 않게.
+      el('carFile').value = '';
+      setSource(`내 PC · ${fileName} · ${loaded.length}대`);
+      ctx.toast(`${fileName} 에서 차량 ${loaded.length}대를 읽었습니다. 「시뮬로 보내기」로 반영합니다.`, 'ok');
+    },
+  });
+
+  el('carSimSave').addEventListener('click', guard(async () => {
+    const fileName = el('carFile').value;
+    if (!fileName) throw new Error('저장 파일 드롭다운에서 이름을 고르세요 (「열기…」로 연 PC 파일은 이름이 시뮬레이터에 없습니다)');
+    await ctx.rpc('car.save', { fileName });
+    ctx.toast(`시뮬레이터 디스크에 ${fileName} 로 저장했습니다`, 'ok');
   }));
 
   el('carClear').addEventListener('click', guard(async () => {
-    if (!confirm('차량 배치를 초기화합니다.\n\n계속할까요?')) return;
+    if (!confirm('시뮬레이터의 차량 배치를 초기화합니다.\n\n계속할까요?')) return;
     await ctx.rpc('car.clear');
     await reload();
   }));
@@ -173,7 +257,10 @@ export function createCarPanel(ctx) {
   return {
     async onActivate() {
       await fillCatalogs();
-      await reload();
+      await loadFileList();
+      // 목록 조회(car.list)는 시뮬레이터가 필요하다. 꺼져 있어도 파일은 볼 수 있어야 하므로
+      // 실패를 삼키지 않고 화면에 알리되 탭 자체는 뜬다.
+      await reload().catch(ctx.reportError);
     },
     async onConnect() {
       await fillCatalogs();

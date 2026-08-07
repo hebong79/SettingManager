@@ -55,6 +55,7 @@ const ctx = {
    */
   files: (kind) => api.simFiles(kind),
   file: (kind, name) => api.simFile(kind, name),
+  parseFile: (kind, name, data) => api.simParseFile(kind, name, data),
   /** 지금 시뮬레이터가 아는 카메라 목록. 세 탭이 나눠 쓴다. */
   cameras: () => cameras,
   refreshCameras: loadCameras,

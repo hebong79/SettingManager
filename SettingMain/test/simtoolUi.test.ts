@@ -12,7 +12,7 @@ import { UNIMPLEMENTED, findSimMethod } from '../src/sim/simCatalog.js';
 
 const read = (name: string) => readFile(new URL(`../web/${name}`, import.meta.url), 'utf8');
 
-const PANELS = ['simtool.js', 'simtoolPreset.js', 'simtoolCar.js', 'simtoolCam.js', 'simtoolMeasure.js'];
+const PANELS = ['simtool.js', 'simtoolPreset.js', 'simtoolCar.js', 'simtoolCam.js', 'simtoolMeasure.js', 'simtoolOpen.js'];
 
 const requiredIds = (script: string): string[] =>
   [...script.matchAll(/\bel\(\s*'([^']+)'\s*\)/g)].map((m) => m[1]!);
@@ -92,6 +92,7 @@ describe('시뮬레이터 툴의 독립', () => {
    *   simCatalog     허용 메서드 목록
    *   simCarCatalog  차량 프리팹 이름 (시뮬레이터가 안 준다 — config/car_catalog.json)
    *   simFiles·simFile  저장 파일 목록·내용 (preset.list 가 실체를 안 보여 준다)
+   *   simParseFile   PC 에서 연 파일의 해석 — **브라우저가 해석하지 않는다**
    *   simRpc         RPC 호출
    *
    * 여섯째가 생기면 그때는 경계가 새고 있는지 다시 봐야 한다. **중요한 것은 개수가 아니라
@@ -101,7 +102,7 @@ describe('시뮬레이터 툴의 독립', () => {
     const api = await read('api.js');
     const block = api.slice(api.indexOf('시뮬레이터 툴'), api.indexOf('settings:'));
     const surface = [...block.matchAll(/^\s{2}(sim\w+):/gm)].map((m) => m[1]);
-    expect(surface).toEqual(['simCatalog', 'simCarCatalog', 'simFiles', 'simFile', 'simRpc']);
+    expect(surface).toEqual(['simCatalog', 'simCarCatalog', 'simFiles', 'simFile', 'simParseFile', 'simRpc']);
     // 이 블록 안의 모든 경로가 /api/sim/ 으로 시작해야 한다.
     for (const path of [...block.matchAll(/'(\/api\/[^'`]*)/g)].map((m) => m[1])) {
       expect(path, path).toMatch(/^\/api\/sim\//);
@@ -188,5 +189,58 @@ describe('프리셋 메이커 — 파일이 목록의 출처다', () => {
     const push = script.slice(script.indexOf('async function push('));
     expect(push).toContain('failed.push');
     expect(push).toContain('sent.length');
+  });
+});
+
+
+describe('「열기…」 — 이 PC 의 파일', () => {
+  it('두 탭에 파일 대화상자가 있고 버튼이 그것을 연다', async () => {
+    const html = await read('simtool.html');
+    for (const id of ['spOpenInput', 'carOpenInput']) {
+      expect(html, id).toMatch(new RegExp(`id="${id}" type="file" accept="[^"]*json`));
+    }
+    for (const id of ['spOpen', 'carOpen']) expect(html).toContain(`id="${id}"`);
+    expect(await read('simtoolOpen.js')).toContain('input.click()');
+  });
+
+  /**
+   * 브라우저가 해석하면 저장 폴더 경로와 업로드 경로가 **서로 다른 해석기**를 갖게 되고,
+   * 축 규약(Unity Y-up ↔ 언리얼 Z-up)이 두 벌이 된다. 그 실패는 오류로 뜨지 않는다.
+   */
+  it('해석·좌표변환을 브라우저에서 하지 않는다 — 서버로 넘긴다', async () => {
+    const script = await read('simtoolOpen.js');
+    // 브라우저가 하는 것은 BOM 제거와 JSON.parse 뿐이다.
+    expect(script).toContain('JSON.parse(text)');
+    expect(script).toContain('parse(kind, file.name, data)');
+    // 축을 만지는 흔적이 있으면 안 된다.
+    expect(script).not.toMatch(/offsetPos|fileToRpc|z:\s*\w+\.y/);
+  });
+
+  /**
+   * `<input type="file">` 은 같은 파일을 다시 고르면 `change` 가 안 난다(값이 그대로다).
+   * 비우지 않으면 "파일을 고쳤는데 화면이 그대로"가 된다.
+   */
+  it('같은 파일을 다시 열 수 있게 값을 비운다', async () => {
+    const script = await read('simtoolOpen.js');
+    const handler = script.slice(script.indexOf("input.addEventListener('change'"));
+    // 읽기 전에 비운다 — 아래에서 던지더라도 다음 선택이 살아 있어야 한다.
+    expect(handler.indexOf("input.value = ''")).toBeLessThan(handler.indexOf('file.text()'));
+  });
+
+  it('PC 파일을 열면 폴더 선택을 풀어 이름이 섞이지 않게 한다', async () => {
+    for (const script of ['simtoolPreset.js', 'simtoolCar.js']) {
+      const source = await read(script);
+      const onLoad = source.slice(source.indexOf('onLoad: (result, fileName)'));
+      expect(onLoad.slice(0, 500), script).toMatch(/el\('(spFile|carFile)'\)\.value = ''/);
+      expect(onLoad.slice(0, 500), script).toContain('내 PC');
+    }
+  });
+
+  it('보내기 확인 문구가 출처를 밝힌다 — 무엇을 보내는지 모르고 누르면 안 된다', async () => {
+    for (const script of ['simtoolPreset.js', 'simtoolCar.js']) {
+      const source = await read(script);
+      const push = source.slice(source.indexOf('async function push('));
+      expect(push.slice(0, 800), script).toContain('${source}');
+    }
   });
 });
