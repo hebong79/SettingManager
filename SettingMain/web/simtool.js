@@ -19,16 +19,29 @@ import { createMeasurePanel } from './simtoolMeasure.js';
  * **도·배율 실수**(pan 47.1 · zoom 2.4)를 그대로 쓴다. 드라이버 계층을 지나지 않기 때문이다.
  * 환산을 두 곳에서 하면 반드시 어긋난다 — 한쪽만 고치는 날이 온다.
  *
- * ## 영상은 시뮬레이터에서 **직접** 받는다
+ * ## 영상 소스만 `camera_info` 를 쓴다 (마스터 지시 2026-08-08)
  *
- * MJPEG 를 `<img>` 로 받는 것은 CORS 대상이 아니므로 프록시가 필요 없다.
- * 주소는 RPC 주소의 호스트 + `cam.list` 가 준 `streamPort` 로 조립한다.
+ * 툴 로직은 여전히 `/api/sim/*` 뿐이지만, **영상 소스 목록은 등록된 카메라**(`camera_info`)
+ * 에서 온다. 이유가 둘이다:
+ *
+ *   ① 시뮬레이터 **메인 카메라**가 `simulator-99` 로 등록돼 있다(스트림 `13600`, basePort).
+ *      `cam.list` 는 PTZ 카메라(13601+)만 알려주므로 메인 뷰가 목록에 안 나온다.
+ *   ② 실카메라(rtsp)도 같은 목록에서 고를 수 있다 — 영상은 `/api/stream?cameraId=` 이
+ *      전송을 알아서 고른다(rtsp→ffmpeg, http MJPEG→그대로 중계).
+ *
+ * **이것이 독립 경계의 유일한 예외다.** 서버 쪽 `src/sim/` 은 여전히 카메라·코어·DB 를
+ * import 하지 않는다 — 화면이 영상 소스 하나를 더 물어볼 뿐이다.
  */
 
 const el = (id) => document.getElementById(id);
 
+/** 시뮬레이터 메인 카메라의 등록 id. 스트림이 basePort(13600)로 나온다. */
+const MAIN_CAMERA_ID = 'simulator-99';
+
 let rpcUrl = '';
 let cameras = [];
+/** 영상 소스 — `camera_info` 에 등록된 카메라들. 시뮬 RPC 카메라와 **다른 축**이다. */
+let streamCameras = [];
 let active = null;
 let streaming = false;
 
@@ -158,17 +171,22 @@ function setPanelsEnabled(enabled) {
       control.disabled = !enabled && !OFFLINE_OK.has(control.id);
     }
   }
-  el('simStreamStart').disabled = !enabled || streaming;
+  // **영상은 시뮬 RPC 와 무관하다** — 등록된 카메라에서 바로 받으므로 연결 실패에도 잠그지 않는다.
+  el('simStreamStart').disabled = streaming || !el('simStreamCam').value;
   el('simStreamStop').disabled = !streaming;
 }
 
 // --- 카메라 · 영상 ---------------------------------------------------------
 
+/**
+ * 시뮬레이터가 아는 카메라 — **PTZ 제어·측정의 대상**이다(`camId` 축).
+ * 영상 소스와는 다른 목록이다.
+ */
 async function loadCameras() {
   const result = await rpc('cam.list');
   cameras = result.cameras ?? [];
   const options = cameras.map((camera) => new Option(`${camera.name ?? 'Camera'} (#${camera.camId})`, String(camera.camId)));
-  for (const id of ['simStreamCam', 'camList', 'mCamId']) {
+  for (const id of ['camList', 'mCamId']) {
     const select = el(id);
     const previous = select.value;
     select.replaceChildren(...options.map((option) => option.cloneNode(true)));
@@ -176,6 +194,27 @@ async function loadCameras() {
   }
   await showStreamSlots();
   for (const entry of panels) entry.panel?.onCameras?.(cameras);
+}
+
+/**
+ * 영상 소스 — 등록된 카메라(`camera_info`). **시뮬레이터 연결과 무관하다** —
+ * 시뮬 RPC 가 꺼져 있어도 영상은 볼 수 있어야 한다.
+ */
+async function loadStreamCameras() {
+  const { cameras: registered } = await api.cameras();
+  streamCameras = registered ?? [];
+  const select = el('simStreamCam');
+  const previous = select.value;
+  select.replaceChildren(...streamCameras.map((camera) => {
+    const isMain = camera.id === MAIN_CAMERA_ID;
+    const option = new Option(`${camera.label ?? camera.id}${isMain ? '  — 시뮬레이터 메인' : ''}`, camera.id);
+    option.title = camera.streamUrl || '(영상 URL 없음 — 스냅샷 폴링)';
+    return option;
+  }));
+  // 기본은 **메인 카메라**다. 없으면 첫 번째를 쓴다(지어내지 않는다).
+  const wanted = previous || (streamCameras.some((c) => c.id === MAIN_CAMERA_ID) ? MAIN_CAMERA_ID : streamCameras[0]?.id);
+  if (wanted) select.value = wanted;
+  el('simStreamStart').disabled = streaming || !select.value;
 }
 
 /**
@@ -196,21 +235,15 @@ async function showStreamSlots() {
   }
 }
 
-/** 영상 주소 = RPC 호스트 + `cam.list` 의 `streamPort`. 우리 서버를 거치지 않는다. */
-function streamUrlFor(camId) {
-  const camera = cameras.find((entry) => String(entry.camId) === String(camId));
-  if (!camera?.streamPort) return null;
-  try {
-    const host = new URL(rpcUrl).hostname;
-    return `http://${host}:${camera.streamPort}/?t=${Date.now()}`;
-  } catch {
-    return null;
-  }
-}
-
+/**
+ * 영상은 **우리 서버를 거친다**(`/api/stream?cameraId=`). 전송(rtsp→ffmpeg,
+ * http MJPEG→그대로 중계, 없으면 스냅샷 폴링)은 서버가 URL 스킴으로 고른다 —
+ * 화면이 포트를 조립하면 그 규칙이 두 벌이 된다.
+ */
 function startStream() {
-  const url = streamUrlFor(el('simStreamCam').value);
-  if (!url) return toast('이 카메라의 스트림 포트를 알 수 없습니다.', 'err');
+  const cameraId = el('simStreamCam').value;
+  if (!cameraId) return toast('영상 소스를 고르세요.', 'err');
+  const url = `/api/stream?cameraId=${encodeURIComponent(cameraId)}&t=${Date.now()}`;
   stopStream();
   const image = el('simStream');
   streaming = true;
@@ -232,7 +265,7 @@ function stopStream() {
   image.classList.remove('live');
   el('simPlaceholder').style.display = '';
   el('simStreamTag').textContent = '정지';
-  el('simStreamStart').disabled = !rpcUrl;
+  el('simStreamStart').disabled = !el('simStreamCam').value;
   el('simStreamStop').disabled = true;
 }
 
@@ -274,6 +307,8 @@ addEventListener('pagehide', stopStream);
 
 async function main() {
   setPanelsEnabled(false);
+  // 영상 소스는 시뮬 연결보다 **먼저** 채운다 — 시뮬이 꺼져 있어도 영상은 봐야 한다.
+  await loadStreamCameras().catch(reportError);
   await loadSettings();
   await showTab('panelPreset');
   await connect();

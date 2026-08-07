@@ -226,13 +226,48 @@ describe('시뮬레이터 툴의 독립', () => {
    * 지시 7. 화면이 `/api/cameras` 나 `/api/core/*` 를 부르는 순간, 카메라 설정이 깨지면
    * 시뮬레이터 툴도 같이 죽는다 — 시뮬레이터는 카메라와 아무 상관이 없는데도.
    */
-  it('카메라·코어·DB API 를 부르지 않는다', async () => {
-    for (const script of PANELS) {
+  it('툴 패널은 카메라·코어·DB API 를 부르지 않는다', async () => {
+    // 껍데기(simtool.js)만 예외다 — 아래 항목이 그 예외를 정확히 규정한다.
+    for (const script of PANELS.filter((name) => name !== 'simtool.js')) {
       const source = await read(script);
       for (const forbidden of ['api.cameras', 'api.coreCapabilities', 'api.dbCameras', '/api/core/', '/api/ptz']) {
         expect(source, `${script} → ${forbidden}`).not.toContain(forbidden);
       }
     }
+  });
+
+  /**
+   * **예외는 영상 소스 하나뿐이다** (마스터 지시 2026-08-08).
+   *
+   * 시뮬레이터 메인 카메라가 `simulator-99` 로 `camera_info` 에 등록돼 있고, `cam.list` 는
+   * PTZ 카메라(13601+)만 알려주므로 메인 뷰가 RPC 목록에 안 나온다. 그래서 영상 소스만
+   * 등록 카메라에서 읽는다.
+   *
+   * 툴 로직은 여전히 `/api/sim/*` 이다 — 코어(`/api/core/*`)·PTZ·DB 편집은 여전히 금지다.
+   */
+  it('껍데기의 예외는 영상 소스뿐이다 — 코어·PTZ·DB 는 여전히 금지', async () => {
+    const shell = await read('simtool.js');
+    expect(shell).toContain('api.cameras()');
+    expect(shell).toContain('/api/stream?cameraId=');
+    for (const forbidden of ['api.coreCapabilities', 'api.dbCameras', 'api.dbPresets', '/api/core/', '/api/ptz']) {
+      expect(shell, forbidden).not.toContain(forbidden);
+    }
+  });
+
+  /** 시뮬레이터 메인 카메라의 등록 id. 바뀌면 영상 기본 선택이 조용히 엉뚱해진다. */
+  it('메인 카메라를 simulator-99 로 알고 기본 선택한다', async () => {
+    const shell = await read('simtool.js');
+    expect(shell).toContain("MAIN_CAMERA_ID = 'simulator-99'");
+    expect(await read('simtool.html')).toContain('simulator-99');
+  });
+
+  /** 영상은 시뮬 RPC 와 무관하다 — 연결이 끊겨도 나와야 한다. */
+  it('영상 소스를 시뮬 연결보다 먼저 채우고, 연결 실패에 잠그지 않는다', async () => {
+    const shell = await read('simtool.js');
+    const main = shell.slice(shell.indexOf('async function main('));
+    expect(main.indexOf('loadStreamCameras')).toBeLessThan(main.indexOf('connect()'));
+    const gate = shell.slice(shell.indexOf('function setPanelsEnabled('));
+    expect(gate.slice(0, 900)).toContain("el('simStreamStart').disabled = streaming");
   });
 
   /**
@@ -267,12 +302,6 @@ describe('없는 기능을 흉내 내지 않는다', () => {
     const panel = html.slice(html.indexOf('id="panelLight"'), html.indexOf('parking-view'));
     expect(panel).toContain('미등록 method: light.get');
     expect(panel).not.toMatch(/<input|<select/);
-  });
-
-  it('main 카메라 스트림이 아직 없다는 사실을 화면이 말한다', async () => {
-    const html = await read('simtool.html');
-    expect(html).toContain('main 카메라」 스트림은 아직 없습니다');
-    expect(html).toContain('view.');
   });
 
   it('클릭 피킹이 없다는 사실을 두 탭이 말한다', async () => {

@@ -501,10 +501,11 @@
             </div>
             <p class="warn" id="simStreamSlots" hidden></p>
             <p class="hint">
-              <strong>지시 6의 「main 카메라」 스트림은 아직 없습니다.</strong> 시뮬레이터는 PTZ 카메라별
-              스트림(<code>13600+camId</code>)만 제공하고, 플레이어 뷰 스트림은 언리얼에
-              <code>view.*</code> + 전용 MJPEG 채널 신설이 필요합니다. 지금 보이는 것은
-              <strong>선택한 PTZ 카메라의 영상</strong>입니다.
+              영상 소스는 <strong>등록된 카메라</strong>(<code>camera_info</code>)입니다 —
+              <strong><code>simulator-99</code> 가 시뮬레이터 메인 카메라</strong>(스트림 <code>13600</code>)이고
+              기본으로 선택됩니다. 나머지는 PTZ 카메라(<code>13600+camId</code>)와 실카메라입니다.
+              영상은 <code>/api/stream</code> 이 전송을 알아서 고릅니다(rtsp→ffmpeg, http MJPEG→그대로 중계).
+              <strong>시뮬레이터 RPC 연결과 무관</strong>하므로 연결이 끊겨도 영상은 나옵니다.
             </p>
           </div>
         </section>
