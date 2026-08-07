@@ -770,58 +770,56 @@ describe('영상·정적 파일', () => {
     expect(source).not.toContain('devicePresetCapability(state.cameraId).catch');
   });
 
-  it('/discovery 는 항상 보이는 고급 UI와 BackendCore 연결 안내를 제공한다', async () => {
-    const response = await fetch(`${base}/discovery`);
+  it('/parking 은 탭 3개와 공용 카메라·영상을 제공한다', async () => {
+    const response = await fetch(`${base}/parking`);
     const html = await response.text();
     expect(html).toContain('주차면 탐색');
     expect(html).toContain('탐색 프리셋');
     expect(html).toContain('주차면 점');
-    expect(html).toContain('자동 작업');
-    expect(html).toContain('캘리브레이션');
     expect(html).toContain('번호판 호밍');
     expect(html).toContain('개별 센터+줌 (미지원)');
     expect(html).toContain('id="advanced"');
     expect(html).not.toContain('id="advanced" hidden');
-    expect(html).toContain('<div class="layout discovery-layout">');
-    expect(html).toContain('<section id="discoveryTarget" class="card">');
-    expect(html).toContain('<aside id="discoveryViewer" class="discovery-view" aria-label="선택 카메라 영상">');
-    expect(html.indexOf('id="discoveryTarget"')).toBeLessThan(html.indexOf('id="discoveryViewer"'));
-    expect(html.indexOf('id="discoveryViewer"')).toBeLessThan(html.indexOf('id="advanced"'));
+
+    // 탭 셋. 첫 탭만 열려 있고 나머지 둘은 hidden 으로 시작한다.
+    expect(html).toContain('<nav class="tabs" id="parkingTabs">');
+    expect(html).toContain('data-panel="panelDiscovery" class="active"');
+    expect(html).toContain('<div id="panelCalibration" hidden>');
+    expect(html).toContain('<div id="panelVehicleBox" hidden>');
+
+    // **대상 카메라와 영상은 탭 밖이다** — 탭마다 카메라를 따로 고르면 사람이 지금
+    // 어느 카메라를 보고 있는지 잃는다.
+    expect(html.indexOf('id="cameraSelect"')).toBeLessThan(html.indexOf('id="parkingTabs"'));
     expect(html).toContain('id="cameraNote"');
     expect(html).toContain('id="stream"');
     expect(html).toContain('class="placeholder" id="streamPlaceholder"');
     expect(html).toContain('id="streamTag" aria-live="polite"');
     expect(html).toContain('alt="선택한 카메라의 영상"');
-    expect(html).toContain('id="streamStart"');
-    expect(html).toContain('id="streamStop"');
-    expect(html).toContain('id="snapshotOnce"');
-    expect(html).toContain('type="button" aria-controls="stream" disabled>시작');
-    expect(html).toContain('type="button" aria-controls="stream" disabled>정지');
-    expect(html).toContain('type="button" aria-controls="stream" disabled>스냅샷 1장');
-    expect(html.indexOf('id="streamStart"')).toBeLessThan(html.indexOf('id="advanced"'));
+    for (const id of ['streamStart', 'streamStop', 'snapshotOnce', 'viewport', 'overlay', 'streamClickMarker']) {
+      expect(html).toContain(`id="${id}"`);
+    }
     expect(html).toContain('href="/options"');
-    expect(html).toContain('aria-live="polite"');
     expect(html).toContain('id="status" role="status" aria-live="polite" aria-atomic="true"');
-    expect(html).toContain('/discovery.js');
+    expect(html).toContain('/parking.js');
   });
 
-  it('discovery CSS는 데스크톱 좌우 grid와 모바일 DOM 순서를 보존한다', async () => {
+  it('/discovery · /calibration · /vehiclebox 는 사라졌다 — 정본이 둘이면 안 된다', async () => {
+    for (const path of ['/discovery', '/calibration', '/vehiclebox']) {
+      expect((await fetch(`${base}${path}`)).status).toBe(404);
+    }
+  });
+
+  it('주차면 CSS는 데스크톱 좌우 grid와 모바일에서 영상 우선 순서를 보존한다', async () => {
     const css = await readFile(join(process.cwd(), 'web', 'app.css'), 'utf8');
 
-    expect(css).toContain('.discovery-layout {');
-    expect(css).toContain('grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);');
-    expect(css).toContain('"target viewer"');
-    expect(css).toContain('"advanced viewer"');
-    expect(css).toContain('#discoveryTarget { grid-area: target; }');
-    expect(css).toContain('#discoveryViewer { grid-area: viewer; min-width: 0; }');
-    expect(css).toContain('#advanced { grid-area: advanced; min-width: 0; }');
-    expect(css).toContain('#advanced > .card { width: 100%; }');
+    expect(css).toContain('.parking-layout { grid-template-columns: minmax(360px, 460px) minmax(0, 1fr); }');
+    expect(css).toContain('#advanced { min-width: 0; }');
+    expect(css).toContain('.parking-panels > div > .card { width: 100%; }');
     expect(css).toContain('@media (min-width: 1101px)');
-    expect(css).toContain('#discoveryViewer { position: sticky; top: 72px; }');
+    expect(css).toContain('.parking-view { position: sticky; top: 72px; }');
     expect(css).toContain('@media (max-width: 1100px)');
-    expect(css).toMatch(/"target"\r?\n      "viewer"\r?\n      "advanced";/);
-    expect(css).toContain('#discoveryViewer { position: static; }');
-    expect(css).toContain('.discovery-stream-actions .row { justify-content: flex-end; }');
+    // 좁은 화면에서 영상이 패널보다 위로 온다 — 조작하면서 결과를 못 보면 소용없다.
+    expect(css).toContain('.parking-view { order: -1; position: static; }');
   });
 
   /**
@@ -848,18 +846,19 @@ describe('영상·정적 파일', () => {
     expect(block).toContain('@media (min-width: 1101px)');
   });
 
-  it('discovery 화면은 구현을 모른다 — 단일 경로와 capability 만 쓴다', async () => {
-    const source = await (await fetch(`${base}/discovery.js`)).text();
+  it('주차면 탐색 탭은 구현을 모른다 — 단일 경로와 capability 만 쓴다', async () => {
+    const source = await (await fetch(`${base}/parkingDiscovery.js`)).text();
     expect(source).not.toContain('useBackendCore');
     expect(source).not.toContain('independent-core');
-    expect(source).toContain("api('/api/core/center'");
-    expect(source).toContain('/api/core/capabilities');
+    expect(source).toContain('api.centerPoint(');
+    // 능력 조회는 껍데기가 한 번만 한다 — 세 패널이 그 결과를 나눠 읽는다.
+    expect(await (await fetch(`${base}/parking.js`)).text()).toContain('api.coreCapabilities(');
   });
 
-  it('점 추가 UI는 선택된 기존 점과 무관하게 collection POST를 만든다', async () => {
-    const source = await readFile(join(process.cwd(), 'web', 'discovery.js'), 'utf8');
-    expect(source).toContain("const pointId=method==='POST'?undefined:q.id");
-    expect(source).toContain('points${pointId?');
+  it('점 추가는 collection POST, 수정·삭제는 item 경로 — 선택된 점과 섞이지 않는다', async () => {
+    const source = await readFile(join(process.cwd(), 'web', 'api.js'), 'utf8');
+    expect(source).toContain("request('POST', `/api/core/discovery/presets/${encodeURIComponent(presetId)}/points`");
+    expect(source).toContain('/points/${encodeURIComponent(pointId)}');
   });
 
   it('web/ 밖으로 나가는 경로는 거부한다', async () => {

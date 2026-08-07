@@ -62,6 +62,35 @@ export const api = {
 
   slots: (cameraId) => request('GET', `/api/slots?cameraId=${encodeURIComponent(cameraId)}`),
 
+  // --- 탐색 프리셋·점 ----------------------------------------------------
+  // **cameraId 를 반드시 싣는다.** 서버는 없으면 *활성* 기기로 떨어지는데, 화면에서 고른
+  // 기기와 활성 기기는 다를 수 있다 — 그러면 A 를 보면서 B 의 탐색 데이터를 고치게 된다.
+  discoveryPresets: (cameraId) => request('GET', `/api/core/discovery/presets?cameraId=${encodeURIComponent(cameraId)}`),
+  discoveryAddPreset: (cameraId, body) => request('POST', '/api/core/discovery/presets', { cameraId, ...body }),
+  discoveryUpdatePreset: (cameraId, presetId, body) =>
+    request('PUT', `/api/core/discovery/presets/${encodeURIComponent(presetId)}`, { cameraId, ...body }),
+  discoveryRemovePreset: (cameraId, presetId) =>
+    request('DELETE', `/api/core/discovery/presets/${encodeURIComponent(presetId)}?cameraId=${encodeURIComponent(cameraId)}`),
+  discoveryGotoPreset: (cameraId, presetId) =>
+    request('POST', `/api/core/discovery/presets/${encodeURIComponent(presetId)}/goto`, { cameraId }),
+  discoveryPoints: (cameraId, presetId) =>
+    request('GET', `/api/core/discovery/presets/${encodeURIComponent(presetId)}/points?cameraId=${encodeURIComponent(cameraId)}`),
+  discoveryAddPoint: (cameraId, presetId, point) =>
+    request('POST', `/api/core/discovery/presets/${encodeURIComponent(presetId)}/points`, { cameraId, ...point }),
+  discoveryUpdatePoint: (cameraId, presetId, pointId, point) =>
+    request('PUT', `/api/core/discovery/presets/${encodeURIComponent(presetId)}/points/${encodeURIComponent(pointId)}`, { cameraId, ...point }),
+  discoveryRemovePoint: (cameraId, presetId, pointId) =>
+    request('DELETE', `/api/core/discovery/presets/${encodeURIComponent(presetId)}/points/${encodeURIComponent(pointId)}?cameraId=${encodeURIComponent(cameraId)}`),
+
+  // --- 번호판 호밍 -------------------------------------------------------
+  // 시작은 **카메라를 점마다 수십 초씩 점유하고 고배율로 돌린다.** 캘리브레이션과 같은 규율이다.
+  plateHomingStart: (cameraId, body) => request('POST', '/api/core/plate-homing/start', { cameraId, ...body }),
+  plateHomingStatus: (cameraId) => request('GET', `/api/core/plate-homing/status?cameraId=${encodeURIComponent(cameraId)}`),
+  plateHomingStop: (cameraId) => request('POST', '/api/core/plate-homing/stop', { cameraId }),
+  /** 실패한 점을 **잡이 본 그대로** 다시 본다 — 스텝별 숫자와 프레임 URL. */
+  plateHomingTrace: (cameraId, presetId, pointId) =>
+    request('GET', `/api/core/discovery/presets/${encodeURIComponent(presetId)}/points/${encodeURIComponent(pointId)}/home-trace?cameraId=${encodeURIComponent(cameraId)}`),
+
   // --- 캘리브레이션 ------------------------------------------------------
   // 시작은 **카메라를 수십 분 점유한다.** 화면이 그 사실을 먼저 말하고 확인을 받는다.
   calibrationStart: (cameraId, mode) => request('POST', '/api/core/calibration/start', { cameraId, mode }),
