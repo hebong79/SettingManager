@@ -56,6 +56,7 @@ const ctx = {
   files: (kind) => api.simFiles(kind),
   file: (kind, name) => api.simFile(kind, name),
   parseFile: (kind, name, data) => api.simParseFile(kind, name, data),
+  serializePresets: (presets) => api.simSerializePresets(presets),
   /** 지금 시뮬레이터가 아는 카메라 목록. 세 탭이 나눠 쓴다. */
   cameras: () => cameras,
   refreshCameras: loadCameras,
@@ -128,10 +129,26 @@ async function connect() {
   }
 }
 
+/**
+ * 시뮬레이터가 필요한 조작만 잠근다.
+ *
+ * **프리셋 메이커의 파일·편집 부분은 잠그지 않는다** — 새로 만들기·열기·저장·추가/수정/삭제는
+ * 이 PC 안에서 끝나는 일이라, 시뮬레이터가 꺼져 있다고 못 하게 막을 이유가 없다.
+ * 잠기는 것은 시뮬레이터를 실제로 두드리는 버튼들이다.
+ */
+const OFFLINE_OK = new Set([
+  'spNew', 'spOpen', 'spOpenInput', 'spSave', 'spAdd', 'spUpdate', 'spDelete', 'spList',
+  'spIdx', 'spName', 'spFaceCount', 'spCamIdx', 'spOffsetX', 'spOffsetY', 'spOffsetZ',
+  'spGroupRot', 'spFaceRot', 'spXSize', 'spZSize', 'spDirType', 'spBaseWidth', 'spStep',
+  'spModeMove', 'spModeRotate',
+]);
+
 function setPanelsEnabled(enabled) {
   for (const entry of panels) {
     if (entry.id === 'panelLight') continue;
-    for (const control of el(entry.id).querySelectorAll('input, select, button')) control.disabled = !enabled;
+    for (const control of el(entry.id).querySelectorAll('input, select, button')) {
+      control.disabled = !enabled && !OFFLINE_OK.has(control.id);
+    }
   }
   el('simStreamStart').disabled = !enabled || streaming;
   el('simStreamStop').disabled = !streaming;

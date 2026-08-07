@@ -122,6 +122,8 @@ export const api = {
   simFile: (kind, name) => request('GET', `/api/sim/files/${kind}/${encodeURIComponent(name)}`),
   /** PC 에서 연 파일. **해석·좌표변환은 서버가 한다** — 브라우저가 하면 규약이 두 벌이 된다. */
   simParseFile: (kind, name, data) => request('POST', `/api/sim/files/${kind}/parse`, { name, data }),
+  /** 저장용 — 화면의 목록을 **파일 모양(Unity 좌표)** 으로 되돌린다. 축 변환은 서버가 한다. */
+  simSerializePresets: (presets) => request('POST', '/api/sim/files/preset/serialize', { presets }),
   simRpc: (method, params = {}) => request('POST', '/api/sim/rpc', { method, params }),
 
   settings: () => request('GET', '/api/settings'),

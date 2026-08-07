@@ -2,8 +2,8 @@ import { readJsonBody, sendJson } from '../httpUtil.js';
 import { SIM_CATALOG } from '../../sim/simCatalog.js';
 import { loadCarCatalog } from '../../sim/carCatalog.js';
 import {
-  PARSERS, RESULT_KEY, SimFileError, isSaveKind, listSimFiles,
-  readCameraFile, readCarFile, readPresetFile,
+  PARSERS, RESULT_KEY, SimFileError, isSaveKind, listSimFiles, parsePresets,
+  readCameraFile, readCarFile, readPresetFile, serializePresets,
 } from '../../sim/simFiles.js';
 import { SimRpcClient, SimRpcError } from '../../sim/simRpcClient.js';
 import type { RouteHandler } from './routeContext.js';
@@ -67,6 +67,18 @@ export const simRoutes: RouteHandler = async (ctx) => {
     return true;
   }
 
+  // 저장 — 화면이 들고 있는 목록을 **파일 모양(Unity 좌표)** 으로 되돌린다.
+  // 읽기와 같은 자리에서 축을 바꾼다: 규약이 읽기/쓰기로 갈리면 열었다 저장한 것만으로
+  // 배치가 틀어지고 그 실패는 오류로 뜨지 않는다.
+  if (method === 'POST' && pathname === '/api/sim/files/preset/serialize') {
+    const body = await readJsonBody(req, 4 * 1024 * 1024);
+    // 화면이 준 것을 그대로 믿지 않고 **해석기를 한 번 통과시킨다** — 모양이 어긋난 값이
+    // 파일로 굳는 것을 여기서 막는다.
+    const presets = parsePresets({ datas: toFileRows(body.presets) }, '(저장 요청)');
+    sendJson(res, 200, { kind: 'preset', file: serializePresets(presets) });
+    return true;
+  }
+
   const file = /^\/api\/sim\/files\/([a-z]+)\/(.+)$/.exec(pathname);
   if (file && method === 'GET') {
     const kind = file[1]!;
@@ -93,3 +105,21 @@ export const simRoutes: RouteHandler = async (ctx) => {
 
   return false;
 };
+
+/**
+ * 화면이 준 RPC 좌표 프리셋을 해석기가 아는 **파일 행 모양**으로 되돌린다.
+ * `parsePresets` 를 한 번 더 태우기 위한 것이라, 여기서는 축만 되돌리고 검사는 하지 않는다.
+ */
+function toFileRows(raw: unknown): unknown[] {
+  if (!Array.isArray(raw)) throw new SimFileError('presets 배열이 필요합니다', 400);
+  return raw.map((entry) => {
+    const preset = (entry ?? {}) as Record<string, unknown>;
+    const offset = (preset.offset ?? {}) as Record<string, unknown>;
+    return {
+      ...preset,
+      // RPC(x,y,z) → 파일(y,z,x). `simCoords.rpcToFile` 과 같은 규칙이며, 여기서는
+      // 해석기가 다시 `fileToRpc` 를 태울 것이므로 왕복해서 제자리로 온다.
+      offsetPos: { x: offset.y, y: offset.z, z: offset.x },
+    };
+  });
+}

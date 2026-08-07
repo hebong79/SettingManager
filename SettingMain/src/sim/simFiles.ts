@@ -1,7 +1,7 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { SERVICE_ROOT } from '../paths.js';
-import { fileToRpc, vec3, type Vec3 } from './simCoords.js';
+import { fileToRpc, rpcToFile, vec3, type Vec3 } from './simCoords.js';
 
 /**
  * 시뮬레이터 저장 파일 저장소 — `SettingMain/save/3D/{Preset,CarPos,CameraPos}`.
@@ -244,6 +244,33 @@ export function parseCameras(parsed: unknown, name = '(업로드)'): CameraPlace
     }
   }
   return out;
+}
+
+/**
+ * 주차면 프리셋을 **파일 모양으로 되돌린다** — 저장용.
+ *
+ * 좌표를 Unity 계로 되돌리고 키 이름도 파일 것(`offsetPos`)으로 쓴다. 여기서 하는 이유는
+ * 읽기와 **같은 자리**에 두기 위해서다 — 축 규약이 읽기/쓰기로 갈리면 열었다 저장한 것만으로
+ * 배치가 틀어지고, 그 실패는 오류로 뜨지 않는다.
+ *
+ * 왕복(읽기→쓰기)이 원본과 같아야 한다: `rpcToFile(fileToRpc(v)) === v`(테스트가 지킨다).
+ */
+export function serializePresets(presets: PresetGroup[]): { datas: unknown[] } {
+  return {
+    datas: presets.map((preset) => ({
+      idx: preset.idx,
+      presetName: preset.presetName,
+      faceCount: preset.faceCount,
+      offsetPos: rpcToFile(preset.offset),
+      faceRot: preset.faceRot,
+      groupRot: preset.groupRot,
+      xSize: preset.xSize,
+      zSize: preset.zSize,
+      dirType: preset.dirType,
+      useBaseWidth: preset.useBaseWidth,
+      camIdx: preset.camIdx,
+    })),
+  };
 }
 
 /** 종류 하나에 해석기 하나. 라우트가 `if (kind === …)` 를 세 번 쓰지 않게 한다. */

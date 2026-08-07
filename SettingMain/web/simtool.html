@@ -55,30 +55,34 @@
               <p class="hint">
                 여기 「프리셋」은 <strong>주차면 그룹</strong>(N개 면의 배치 단위)입니다 —
                 카메라 제어의 <strong>PTZ 프리셋과 다른 것</strong>입니다.
-                목록은 <strong><code>save/3D/Preset</code> 의 저장 파일</strong>에서 옵니다 —
-                시뮬레이터의 <code>preset.list</code> 는 RPC 가 만든 것만 보여 주므로
-                사람이 그린 배치가 거기 안 보입니다.
               </p>
               <div class="row">
-                <div class="field"><label for="spFile">저장 파일 (save/3D/Preset)</label><select id="spFile"></select></div>
-                <button id="spReload" type="button">다시 읽기</button>
-              </div>
-              <div class="row">
+                <button id="spNew" type="button">새로 만들기</button>
                 <button id="spOpen" class="primary" type="button">열기…</button>
-                <span class="hint" id="spSource">-</span>
-                <!-- 브라우저 파일 대화상자. 보이지 않고 「열기…」가 대신 눌러 준다. -->
+                <button id="spSave" type="button">저장…</button>
                 <input id="spOpenInput" type="file" accept=".json,application/json" hidden>
               </div>
+              <p class="hint" id="spSource">-</p>
+              <p class="hint">
+                표준 위치는 <code>SettingMain/save/3D/Preset</code> 입니다.
+                <strong>브라우저는 대화상자의 시작 폴더를 지정할 수 없습니다</strong>(보안 제한) —
+                한 번 그 폴더에서 열고 나면 다음부터 거기서 열립니다.
+              </p>
               <div class="row">
                 <div class="field"><label for="spList">프리셋</label><select id="spList" size="6"></select></div>
+              </div>
+              <div class="row">
+                <button id="spAdd" class="primary" type="button">추가</button>
+                <button id="spUpdate" type="button">수정</button>
+                <button id="spDelete" class="danger" type="button">삭제</button>
               </div>
               <div class="row">
                 <button id="spPush" class="danger" type="button">시뮬로 보내기</button>
                 <button id="spClear" class="danger" type="button">시뮬 프리셋 전체 삭제</button>
               </div>
               <p class="hint">
-                「시뮬로 보내기」는 <code>preset.clear</code> 뒤 파일의 프리셋을 하나씩
-                <code>preset.create</code> 로 넣습니다 — <strong>시뮬레이터의 기존 주차면이 전부 사라집니다.</strong>
+                「추가·수정·삭제」는 <strong>이 화면의 목록만</strong> 바꿉니다 — 파일도 시뮬레이터도
+                건드리지 않습니다. 파일로 굳히려면 「저장…」, 시뮬레이터에 반영하려면 「시뮬로 보내기」입니다.
               </p>
             </div>
           </section>
@@ -87,7 +91,7 @@
             <h2>상세</h2>
             <div class="body">
               <div class="row">
-                <div class="field"><label for="spIdx">Preset Idx</label><input id="spIdx" type="number" readonly></div>
+                <div class="field"><label for="spIdx">Preset Idx</label><input id="spIdx" type="number" min="1"></div>
                 <div class="field"><label for="spName">Preset Name</label><input id="spName" maxlength="60"></div>
               </div>
               <div class="row">
@@ -95,9 +99,9 @@
                 <div class="field"><label for="spCamIdx">Camera idx</label><input id="spCamIdx" type="number" min="1" value="1"></div>
               </div>
               <div class="row">
-                <div class="field"><label for="spOffsetX">Offset X</label><input id="spOffsetX" type="number" step="0.001" value="0" readonly></div>
-                <div class="field"><label for="spOffsetY">Offset Y</label><input id="spOffsetY" type="number" step="0.001" value="0" readonly></div>
-                <div class="field"><label for="spOffsetZ">Offset Z (높이)</label><input id="spOffsetZ" type="number" step="0.001" value="0" readonly></div>
+                <div class="field"><label for="spOffsetX">Offset X</label><input id="spOffsetX" type="number" step="0.001" value="0"></div>
+                <div class="field"><label for="spOffsetY">Offset Y</label><input id="spOffsetY" type="number" step="0.001" value="0"></div>
+                <div class="field"><label for="spOffsetZ">Offset Z (높이)</label><input id="spOffsetZ" type="number" step="0.001" value="0"></div>
               </div>
               <div class="row">
                 <div class="field"><label for="spGroupRot">Group Face Rotate</label><input id="spGroupRot" type="number" step="0.001" value="0"></div>
@@ -116,9 +120,10 @@
               </div>
               <p class="hint" id="spDerived">-</p>
               <p class="hint">
-                좌표는 <strong>RPC 계(언리얼 Z-up)</strong>로 보여 줍니다 — 저장 파일은 Unity(Y-up)라
-                서버가 <code>RPC(x,y,z) = 파일(z,x,y)</code> 로 바꿔 읽습니다(실측 검증).
-                상세는 <strong>읽기 전용</strong>입니다: 편집은 시뮬레이터 UI 나 저장 파일에서 합니다.
+                좌표는 <strong>RPC 계(언리얼 Z-up)</strong>입니다 — 평면이 <strong>X·Y</strong>, 높이가 <strong>Z</strong>.
+                저장 파일은 Unity(Y-up)라 서버가 <code>RPC(x,y,z) = 파일(z,x,y)</code> 로 바꿉니다(실측 검증).
+                <strong>옛 프리셋 메이커 화면의 Offset 과 X·Z 가 바뀌어 보입니다</strong> — 같은 자리를
+                다른 축 이름으로 부르는 것뿐입니다.
               </p>
             </div>
           </section>
@@ -147,9 +152,9 @@
                 <button id="spSimLoad" type="button">시뮬에서 열기</button>
               </div>
               <p class="hint">
-                이 둘은 <strong>시뮬레이터 디스크</strong>를 다룹니다(<code>preset.save</code>·<code>preset.load</code>) —
-                위 드롭다운의 <code>save/3D/Preset</code>(이 PC)과는 다른 곳입니다.
-                파일명은 위에서 고른 것을 씁니다.
+                이 둘은 <strong>시뮬레이터(192.168.0.125) 디스크</strong>를 다룹니다
+                (<code>preset.save</code>·<code>preset.load</code>) — 위 「저장…·열기…」의 이 PC 와는 다른 곳입니다.
+                파일명을 물어봅니다.
               </p>
             </div>
           </section>

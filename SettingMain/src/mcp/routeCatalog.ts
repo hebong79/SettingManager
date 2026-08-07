@@ -207,6 +207,22 @@ export const ROUTE_CATALOG: readonly RouteCatalogEntry[] = [
     notes: '정본은 config/car_catalog.json — 배열 순서가 곧 prefabId(1부터)다. 시뮬레이터 RPC 는 이 목록을 주지 않는다.',
   },
   {
+    method: 'GET', path: '/api/sim/files/:kind', title: '시뮬레이터 저장 파일 목록', mutating: false, movesCamera: false,
+    notes: 'kind = preset | car | camera. save/3D/{Preset,CarPos,CameraPos} 를 읽는다. 폴더가 없으면 빈 목록이다(오류가 아니다).',
+  },
+  {
+    method: 'GET', path: '/api/sim/files/:kind/:name', title: '저장 파일 내용', mutating: false, movesCamera: false,
+    notes: '★ 좌표를 RPC 계(언리얼 Z-up)로 바꿔서 준다 — 파일은 Unity(Y-up)다. RPC(x,y,z) = 파일(z,x,y).',
+  },
+  {
+    method: 'POST', path: '/api/sim/files/:kind/parse', title: '올린 파일 내용 해석', mutating: false, movesCamera: false,
+    notes: '{ name, data } — 저장 폴더의 파일과 **같은 해석기·같은 좌표 변환**을 태운다. 디스크를 쓰지 않는다.',
+  },
+  {
+    method: 'POST', path: '/api/sim/files/preset/serialize', title: '주차면 프리셋을 파일 모양으로', mutating: false, movesCamera: false,
+    notes: '{ presets } — 저장용. 좌표를 Unity 계로 되돌리고 키 이름도 파일 것(offsetPos)으로 쓴다. 디스크를 쓰지 않는다.',
+  },
+  {
     // **한 경로에 80가지 행위가 들어 있다.** 실제 행위는 본문의 `method` 가 정하므로
     // 이 항목 하나로는 안전한 것과 위험한 것을 가를 수 없다. 그래서 가장 위험한 쪽에
     // 맞춰 표시한다 — `cam.setPTZ` 처럼 카메라를 실제로 돌리는 것이 목록에 있다.
