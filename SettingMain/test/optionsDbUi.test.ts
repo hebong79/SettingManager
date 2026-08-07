@@ -120,7 +120,7 @@ describe('DB 테이블 뷰어', () => {
   });
 
   it('모든 화면에서 뷰어로 갈 수 있다', async () => {
-    for (const page of ['options.html', 'index.html', 'discovery.html', 'dbtable.html']) {
+    for (const page of ['options.html', 'index.html', 'parking.html', 'dbtable.html']) {
       expect(await source(`../web/${page}`)).toContain('href="/dbtable"');
     }
   });

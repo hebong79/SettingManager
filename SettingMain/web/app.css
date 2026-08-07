@@ -71,35 +71,28 @@ main.narrow { max-width: 660px; margin: 0; }
   .stream-column { position: sticky; top: 80px; }
 }
 
-/* --- 주차면 탐색: 좌측 조작 · 우측 영상 --- */
-.discovery-layout {
-  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
-  grid-template-areas:
-    "target viewer"
-    "advanced viewer";
-  column-gap: 16px;
-  row-gap: 0;
-}
-#discoveryTarget { grid-area: target; }
-#discoveryViewer { grid-area: viewer; min-width: 0; }
-#advanced { grid-area: advanced; min-width: 0; }
-#advanced > .card { width: 100%; }
-.discovery-stream-actions .row { justify-content: flex-end; }
+/* --- 주차면 페이지: 좌측 탭 패널 · 우측 영상 -----------------------------
+   세 탭(탐색·캘리브레이션·차량 3D)이 **영상 하나**를 나눠 쓴다. 영상이 붙어 있어야
+   탭을 옮겨도 "지금 이 카메라가 무엇을 보고 있는지"가 끊기지 않는다. */
+.parking-layout { grid-template-columns: minmax(360px, 460px) minmax(0, 1fr); }
+.parking-panels { min-width: 0; }
+.parking-panels > div > .card { width: 100%; }
+#advanced { min-width: 0; }
+.parking-view { min-width: 0; }
 
 @media (min-width: 1101px) {
-  #discoveryViewer { position: sticky; top: 72px; }
+  .parking-view { position: sticky; top: 72px; }
 }
 
 @media (max-width: 1100px) {
-  .discovery-layout {
-    grid-template-columns: 1fr;
-    grid-template-areas:
-      "target"
-      "viewer"
-      "advanced";
-  }
-  #discoveryViewer { position: static; }
+  .parking-layout { grid-template-columns: 1fr; }
+  /* 좁은 화면에서는 영상을 **패널보다 위로** 올린다 — 조작하면서 결과를 못 보면 소용없다. */
+  .parking-view { order: -1; position: static; }
 }
+
+/* 호밍 과정 재생. 영상 뷰포트와 같은 규격이라 박스가 프레임과 정확히 겹친다. */
+#homeTraceCard .viewport { aspect-ratio: 16 / 9; }
+#homeTraceFrame { width: 100%; height: 100%; object-fit: contain; display: block; }
 
 .card {
   background: var(--panel);
@@ -376,3 +369,25 @@ table.grid tbody tr.bad td { color: var(--warn); }
 /* 영상은 넓게, 나머지는 그대로. 카메라 제어 화면과 같은 기조다. */
 .commissioning-view .viewport { aspect-ratio: 16 / 9; }
 progress { width: 220px; height: 10px; }
+
+/* --- 시뮬레이터 툴: 라벨 · 최솟값 · 슬라이더 · 최댓값 · 현재값 한 줄 ---------
+   Min/Max 는 화면 전용 범위다(시뮬레이터에 저장되지 않는다) — 그래서 슬라이더 양옆에
+   붙여 "이 슬라이더가 다룰 구간"임이 눈에 보이게 둔다. */
+.slider-row {
+  display: grid;
+  grid-template-columns: 108px 68px minmax(0, 1fr) 68px 64px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.slider-row label { font-size: 12px; color: var(--muted); }
+.slider-row input[type="number"] { font-size: 11px; padding: 3px 5px; }
+.slider-row input[type="range"] { width: 100%; accent-color: var(--accent); }
+.slider-row output { font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 1100px) {
+  .slider-row { grid-template-columns: 96px 60px minmax(0, 1fr) 60px 56px; }
+}
+
+/* 차량·프리셋 목록은 여러 줄을 한눈에 봐야 한다 — 드롭다운이 아니라 리스트박스다. */
+#carList, #spList { width: 100%; font-family: inherit; font-size: 12px; }

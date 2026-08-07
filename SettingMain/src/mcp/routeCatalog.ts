@@ -86,6 +86,14 @@ export const ROUTE_CATALOG: readonly RouteCatalogEntry[] = [
   },
   { method: 'GET', path: '/api/core/plate-homing/status', title: '번호판 호밍 상태', mutating: false, movesCamera: false },
   { method: 'POST', path: '/api/core/plate-homing/stop', title: '번호판 호밍 중단', mutating: false, movesCamera: false },
+  {
+    method: 'GET', path: '/api/core/discovery/presets/:presetId/points/:pointId/home-trace',
+    title: '번호판 호밍 과정 (스텝별 숫자·상자)', mutating: false, movesCamera: false,
+    // 스텝 프레임(`/api/core/home-frame/...`)은 **일부러 싣지 않는다** — `image/jpeg` 라
+    // `/api/stream` 과 같은 이유로 MCP 대화에 실을 수 없다. 여기 응답의 `frameUrl` 이
+    // 그 주소를 알려 주므로, 필요하면 사람이 브라우저로 연다.
+    notes: '아직 호밍하지 않은 점도 200 + 빈 스텝이다(오류가 아니다).',
+  },
 
   // --- 카메라 프로파일 (발행본) --------------------------------------------------
   // 경로는 정규식으로 잡으므로 위 소스 스캔에 잡히지 않는다. 그래도 여기 적는다 —
@@ -185,6 +193,42 @@ export const ROUTE_CATALOG: readonly RouteCatalogEntry[] = [
   // --- 주차면·영상 ---------------------------------------------------------
   { method: 'GET', path: '/api/slots', title: '주차면 목록', mutating: false, movesCamera: false, notes: 'source 가 simulator 인지 local 인지 함께 온다.' },
   { method: 'GET', path: '/api/snapshot', title: '스냅샷 1장 (image/jpeg)', mutating: false, movesCamera: false, notes: 'MCP 로는 바이너리를 싣지 않는다 — 크기만 답한다.' },
+
+  // --- 시뮬레이터 툴 (언리얼 Park3D RPC 경유) --------------------------------
+  //
+  // **카메라·DB 와 무관한 평면이다.** 여기서 움직이는 것은 시뮬레이터 안의 카메라이고,
+  // 이 서비스가 관리하는 실기기가 아니다.
+  {
+    method: 'GET', path: '/api/sim/catalog', title: '시뮬레이터가 허용하는 메서드 목록', mutating: false, movesCamera: false,
+    notes: '이 목록 밖 메서드는 프록시가 400 으로 거절한다. 시뮬레이터 자신이 무엇을 갖고 있는지는 system.catalog 로 따로 묻는다.',
+  },
+  {
+    method: 'GET', path: '/api/sim/car-catalog', title: '차량 프리팹 이름 (prefabId 순)', mutating: false, movesCamera: false,
+    notes: '정본은 config/car_catalog.json — 배열 순서가 곧 prefabId(1부터)다. 시뮬레이터 RPC 는 이 목록을 주지 않는다.',
+  },
+  {
+    method: 'GET', path: '/api/sim/files/:kind', title: '시뮬레이터 저장 파일 목록', mutating: false, movesCamera: false,
+    notes: 'kind = preset | car | camera. save/3D/{Preset,CarPos,CameraPos} 를 읽는다. 폴더가 없으면 빈 목록이다(오류가 아니다).',
+  },
+  {
+    method: 'GET', path: '/api/sim/files/:kind/:name', title: '저장 파일 내용', mutating: false, movesCamera: false,
+    notes: '★ 좌표를 RPC 계(언리얼 Z-up)로 바꿔서 준다 — 파일은 Unity(Y-up)다. RPC(x,y,z) = 파일(z,x,y).',
+  },
+  {
+    method: 'POST', path: '/api/sim/files/:kind/parse', title: '올린 파일 내용 해석', mutating: false, movesCamera: false,
+    notes: '{ name, data } — 저장 폴더의 파일과 **같은 해석기·같은 좌표 변환**을 태운다. 디스크를 쓰지 않는다.',
+  },
+  {
+    method: 'POST', path: '/api/sim/files/preset/serialize', title: '주차면 프리셋을 파일 모양으로', mutating: false, movesCamera: false,
+    notes: '{ presets } — 저장용. 좌표를 Unity 계로 되돌리고 키 이름도 파일 것(offsetPos)으로 쓴다. 디스크를 쓰지 않는다.',
+  },
+  {
+    // **한 경로에 80가지 행위가 들어 있다.** 실제 행위는 본문의 `method` 가 정하므로
+    // 이 항목 하나로는 안전한 것과 위험한 것을 가를 수 없다. 그래서 가장 위험한 쪽에
+    // 맞춰 표시한다 — `cam.setPTZ` 처럼 카메라를 실제로 돌리는 것이 목록에 있다.
+    method: 'POST', path: '/api/sim/rpc', title: '시뮬레이터 RPC 호출', mutating: true, movesCamera: true,
+    notes: '{ method, params } — 실제 행위는 method 가 정한다. 읽기(cam.list·map.get 등)도 이 경로로 가지만, 목록에 카메라를 움직이는 것이 섞여 있어 보수적으로 표시한다. 허용 목록은 GET /api/sim/catalog.',
+  },
 ];
 
 /** 경로 템플릿을 실제 경로에 맞춰 본다. `:이름` 은 슬래시 없는 한 조각과 맞는다. */

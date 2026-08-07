@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SettingManager · 시뮬레이터 툴</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header class="topbar"><h1>SettingManager</h1><nav>
+    <a href="/">카메라 제어</a><a href="/parking">주차면</a><a href="/simtool" class="active">시뮬레이터 툴</a>
+    <a href="/options">옵션</a><a href="/dbtable">DB 테이블</a></nav></header>
+
+  <main>
+    <!-- ============ 탭 밖: 시뮬레이터 연결 (5탭 공용) ============ -->
+    <section class="card">
+      <h2>시뮬레이터 <span class="tag" id="simTag">확인 중</span></h2>
+      <div class="body">
+        <div class="row">
+          <div class="field"><label for="simUrl">Park3D RPC 주소</label><input id="simUrl" placeholder="http://192.168.0.125:13510"></div>
+          <button id="simSave" type="button">저장</button>
+          <button id="simConnect" class="primary" type="button">연결 확인</button>
+        </div>
+        <p class="capability-note" id="simNote" aria-live="polite">주소를 확인하고 「연결 확인」을 누르세요.</p>
+        <p class="hint">
+          이 주소는 <strong>카메라 코어(backend-core)와 다른 것</strong>입니다 — 여기는 씬을 편집하는
+          시뮬레이터 자신의 JSON-RPC 입니다. 시뮬레이터 툴은 카메라 설정·DB 를 전혀 쓰지 않습니다.
+        </p>
+      </div>
+    </section>
+
+    <nav class="tabs" id="simTabs">
+      <button type="button" data-panel="panelPreset" class="active">프리셋 메이커</button>
+      <button type="button" data-panel="panelCar">차량 배치</button>
+      <button type="button" data-panel="panelCam">카메라 컨트롤</button>
+      <button type="button" data-panel="panelMeasure">거리 측정</button>
+      <button type="button" data-panel="panelLight">조명 설정</button>
+    </nav>
+
+    <div class="layout parking-layout">
+      <div class="parking-panels">
+
+        <!-- ---------- 탭 ① 프리셋 메이커 (주차면 그룹) ---------- -->
+        <div id="panelPreset">
+          <p class="warn" id="spDanger">
+            <strong>⚠ 이 탭의 쓰기 동작은 시뮬레이터 UI 로 그린 주차면을 지웁니다.</strong>
+            시뮬레이터는 위젯 목록과 RPC 목록을 <strong>따로</strong> 갖고 있어서,
+            <code>preset.*</code> 를 호출하면 위젯이 그려 둔 것이 사라집니다.
+            읽기(목록·상세)는 안전하고, <strong>「시뮬로 보내기」와 「전체 삭제」만</strong> 위험합니다.
+          </p>
+
+          <section class="card">
+            <h2>주차면 프리셋 <span class="tag" id="presetCount">-</span></h2>
+            <div class="body">
+              <p class="hint">
+                여기 「프리셋」은 <strong>주차면 그룹</strong>(N개 면의 배치 단위)입니다 —
+                카메라 제어의 <strong>PTZ 프리셋과 다른 것</strong>입니다.
+              </p>
+              <div class="row">
+                <button id="spNew" type="button">새로 만들기</button>
+                <button id="spOpen" class="primary" type="button">열기…</button>
+                <button id="spSave" type="button">저장…</button>
+                <input id="spOpenInput" type="file" accept=".json,application/json" hidden>
+              </div>
+              <p class="hint" id="spStatus">-</p>
+              <p class="hint">
+                표준 위치는 <code>SettingMain/save/3D/Preset</code> 입니다.
+                <strong>브라우저는 대화상자의 시작 폴더를 지정할 수 없습니다</strong>(보안 제한) —
+                한 번 그 폴더에서 열고 나면 다음부터 거기서 열립니다.
+              </p>
+              <div class="row">
+                <div class="field"><label for="spList">프리셋</label><select id="spList" size="6"></select></div>
+              </div>
+              <div class="row">
+                <button id="spAdd" class="primary" type="button">추가</button>
+                <button id="spUpdate" type="button">수정</button>
+                <button id="spDelete" class="danger" type="button">삭제</button>
+              </div>
+              <div class="row">
+                <button id="spPush" class="danger" type="button">시뮬로 보내기</button>
+                <button id="spClear" class="danger" type="button">시뮬 프리셋 전체 삭제</button>
+              </div>
+              <p class="hint">
+                「추가·수정·삭제」는 <strong>이 화면의 목록만</strong> 바꿉니다 — 파일도 시뮬레이터도
+                건드리지 않습니다. 파일로 굳히려면 「저장…」, 시뮬레이터에 반영하려면 「시뮬로 보내기」입니다.
+              </p>
+            </div>
+          </section>
+
+          <section class="card">
+            <h2>상세</h2>
+            <div class="body">
+              <div class="row">
+                <div class="field"><label for="spIdx">Preset Idx</label><input id="spIdx" type="number" min="1"></div>
+                <div class="field"><label for="spName">Preset Name</label><input id="spName" maxlength="60"></div>
+              </div>
+              <div class="row">
+                <div class="field"><label for="spFaceCount">Face Count</label><input id="spFaceCount" type="number" min="1" value="7"></div>
+                <div class="field"><label for="spCamIdx">Camera idx</label><input id="spCamIdx" type="number" min="1" value="1"></div>
+              </div>
+              <div class="row">
+                <div class="field"><label for="spOffsetX">Offset X</label><input id="spOffsetX" type="number" step="0.001" value="0"></div>
+                <div class="field"><label for="spOffsetY">Offset Y</label><input id="spOffsetY" type="number" step="0.001" value="0"></div>
+                <div class="field"><label for="spOffsetZ">Offset Z (높이)</label><input id="spOffsetZ" type="number" step="0.001" value="0"></div>
+              </div>
+              <div class="row">
+                <div class="field"><label for="spGroupRot">Group Face Rotate</label><input id="spGroupRot" type="number" step="0.001" value="0"></div>
+                <div class="field"><label for="spFaceRot">Face Rotate</label><input id="spFaceRot" type="number" step="0.001" value="0"></div>
+              </div>
+              <div class="row">
+                <div class="field"><label for="spXSize">BoxSize X</label><input id="spXSize" type="number" step="0.01" value="2.5"></div>
+                <div class="field"><label for="spZSize">BoxSize Z</label><input id="spZSize" type="number" step="0.01" value="5"></div>
+              </div>
+              <div class="row">
+                <div class="field"><label for="spDirType">Dir Type</label><select id="spDirType">
+                  <option value="0">Default</option><option value="1">Type 1</option><option value="2">Type 2</option><option value="3">Type 3</option>
+                </select></div>
+                <label class="checkbox"><input id="spBaseWidth" type="checkbox" checked> Is Base width</label>
+                <label class="checkbox" title="면 단위 토글은 시뮬레이터가 지원하지 않아 전체 재빌드로 켭니다"><input id="spUse3d" type="checkbox"> Use 3D <span class="tag">전역</span></label>
+              </div>
+              <p class="hint" id="spDerived">-</p>
+              <p class="hint">
+                좌표는 <strong>RPC 계(언리얼 Z-up)</strong>입니다 — 평면이 <strong>X·Y</strong>, 높이가 <strong>Z</strong>.
+                저장 파일은 Unity(Y-up)라 서버가 <code>RPC(x,y,z) = 파일(z,x,y)</code> 로 바꿉니다(실측 검증).
+                <strong>옛 프리셋 메이커 화면의 Offset 과 X·Z 가 바뀌어 보입니다</strong> — 같은 자리를
+                다른 축 이름으로 부르는 것뿐입니다.
+              </p>
+            </div>
+          </section>
+
+          <section class="card">
+            <h2>프리셋 이동</h2>
+            <div class="body">
+              <div class="row">
+                <label class="checkbox"><input type="radio" name="spMode" id="spModeMove" value="move" checked> 이동</label>
+                <label class="checkbox"><input type="radio" name="spMode" id="spModeRotate" value="rotate"> 회전</label>
+                <div class="field"><label for="spStep">step (m / °)</label><input id="spStep" type="number" step="0.1" value="0.5"></div>
+              </div>
+              <div class="pad">
+                <button class="up" id="spUp" type="button" title="+Y">▲</button>
+                <button class="left" id="spLeft" type="button" title="−X">◀</button>
+                <button class="stop" id="spRenumber" type="button" title="주차면 번호 재계산">번호</button>
+                <button class="right" id="spRight" type="button" title="+X">▶</button>
+                <button class="down" id="spDown" type="button" title="−Y">▼</button>
+              </div>
+              <p class="hint">
+                <strong>언리얼은 Z-up</strong> 입니다 — 평면이 X·Y 이고 높이가 Z 입니다.
+                회전 모드에서는 ◀▶ 가 Face Rotate, ▲▼ 가 Group Rotate 입니다.
+              </p>
+              <div class="row">
+                <button id="spSimSave" type="button">시뮬에 저장</button>
+                <button id="spSimLoad" type="button">시뮬에서 열기</button>
+              </div>
+              <p class="hint">
+                이 둘은 <strong>시뮬레이터(192.168.0.125) 디스크</strong>를 다룹니다
+                (<code>preset.save</code>·<code>preset.load</code>) — 위 「저장…·열기…」의 이 PC 와는 다른 곳입니다.
+                파일명을 물어봅니다.
+              </p>
+            </div>
+          </section>
+        </div>
+
+        <!-- ---------- 탭 ② 차량 배치 ---------- -->
+        <div id="panelCar" hidden>
+          <p class="warn">
+            <strong>⚠ 「시뮬로 보내기」는 시뮬레이터의 기존 차량을 전부 지웁니다.</strong>
+            읽기·편집·저장은 이 PC 안에서 끝나므로 안전합니다.
+          </p>
+
+          <section class="card">
+            <h2>차량 배치 <span class="tag" id="carCountTag">-</span></h2>
+            <div class="body">
+              <div class="row">
+                <button id="carNew" type="button">새로 만들기</button>
+                <button id="carOpen" class="primary" type="button">열기…</button>
+                <button id="carSave" type="button">저장…</button>
+                <input id="carOpenInput" type="file" accept=".json,application/json" hidden>
+              </div>
+              <p class="hint" id="carStatus">-</p>
+              <p class="hint">
+                표준 위치는 <code>SettingMain/save/3D/CarPos</code> 입니다.
+                <strong>브라우저는 대화상자의 시작 폴더를 지정할 수 없습니다</strong>(보안 제한) —
+                한 번 그 폴더에서 열고 나면 다음부터 거기서 열립니다.
+              </p>
+              <div class="row">
+                <div class="field"><label for="carList">차량</label><select id="carList" size="8"></select></div>
+              </div>
+              <div class="row">
+                <button id="carAdd" class="primary" type="button">추가</button>
+                <button id="carUpdate" type="button">수정</button>
+                <button id="carDelete" class="danger" type="button">삭제</button>
+              </div>
+              <div class="row">
+                <button id="carPush" class="danger" type="button">시뮬로 보내기</button>
+                <button id="carPull" type="button">시뮬에서 가져오기</button>
+                <button id="carClear" class="danger" type="button">시뮬 차량 초기화</button>
+              </div>
+              <p class="hint">
+                「추가·수정·삭제」는 <strong>이 화면의 목록만</strong> 바꿉니다.
+                파일로 굳히려면 「저장…」, 시뮬레이터에 반영하려면 「시뮬로 보내기」입니다.
+              </p>
+            </div>
+          </section>
+
+          <section class="card">
+            <h2>상세</h2>
+            <div class="body">
+              <div class="row">
+                <div class="field"><label for="carSelId">Idx</label><input id="carSelId"></div>
+                <div class="field"><label for="carPrefab">차량 프리팹</label><select id="carPrefab"></select></div>
+                <div class="field"><label for="carType">차량 타입</label><select id="carType"></select></div>
+              </div>
+              <p class="hint" id="carCatalogNote">
+                프리팹 목록의 정본은 <code>config/car_catalog.json</code> 입니다 —
+                <strong>배열 순서가 곧 prefabId(1부터)</strong>이고, 순서를 바꾸면 저장된
+                <code>CarPos_*.json</code> 의 차종 해석이 바뀝니다.
+              </p>
+              <div class="row">
+                <div class="field"><label for="carSelPreset">Preset Id</label><input id="carSelPreset" type="number" min="0"></div>
+                <div class="field"><label for="carSelFace">Face Id</label><input id="carSelFace" type="number" min="0"></div>
+                <div class="field"><label for="carSelRotY">Rot Y</label><input id="carSelRotY" type="number" step="0.01"></div>
+              </div>
+              <div class="row">
+                <div class="field"><label for="carX">X</label><input id="carX" type="number" step="0.001" value="0"></div>
+                <div class="field"><label for="carY">Y</label><input id="carY" type="number" step="0.001" value="0"></div>
+                <div class="field"><label for="carZ">Z (높이)</label><input id="carZ" type="number" step="0.001" value="0"></div>
+              </div>
+              <div class="row">
+                <label class="checkbox"><input type="radio" name="carFace" id="carFront" value="front" checked> Front</label>
+                <label class="checkbox"><input type="radio" name="carFace" id="carBack" value="back"> Back</label>
+              </div>
+              <p class="hint">
+                좌표는 <strong>RPC 계(언리얼 Z-up)</strong>입니다 — 평면이 X·Y, 높이가 Z.
+                저장 파일은 Unity(Y-up)라 서버가 바꿉니다.
+                화면 클릭으로 자리를 찍으려면 언리얼에 <code>view.pick</code> 신설이 필요합니다 —
+                지금은 좌표를 직접 넣습니다.
+              </p>
+            </div>
+          </section>
+
+          <section class="card">
+            <h2>줄 자동배치 · 랜덤</h2>
+            <div class="body">
+              <div class="row">
+                <div class="field"><label for="carPresetId">Preset Id</label><input id="carPresetId" type="number" min="1" value="1"></div>
+                <div class="field"><label for="carCount">개수</label><input id="carCount" type="number" min="1" value="7"></div>
+                <div class="field"><label for="carSpacing">배치간격 (m)</label><input id="carSpacing" type="number" step="0.1" value="2.5"></div>
+                <label class="checkbox"><input id="carVertical" type="checkbox"> 세로배치</label>
+              </div>
+              <div class="row">
+                <button id="carAutoLine" type="button">시뮬에 줄 배치</button>
+                <div class="field"><label for="carRandomMode">랜덤 모드</label><select id="carRandomMode">
+                  <option value="color">색상만 랜덤</option>
+                  <option value="objectAndColor">객체 + 색상</option>
+                  <option value="countObjectAndColor">개수 + 객체 + 색상</option>
+                </select></div>
+                <button id="carResetRandom" type="button">리셋랜덤</button>
+              </div>
+              <p class="hint">
+                이 둘은 <strong>시뮬레이터를 직접</strong> 바꿉니다(이 화면의 목록이 아닙니다).
+                끝난 뒤 「시뮬에서 가져오기」로 결과를 목록에 담을 수 있습니다.
+                시뮬레이터의 <code>random.slotPlace</code>·<code>slotJitter</code>·<code>frontBack</code>·<code>randomizeAll</code> 은
+                <strong>등록만 돼 있고 동작하지 않습니다.</strong>
+              </p>
+              <div class="row">
+                <button id="carSimSave" type="button">시뮬에 저장</button>
+                <button id="carSimLoad" type="button">시뮬에서 열기</button>
+              </div>
+              <p class="hint">
+                이 둘은 <strong>시뮬레이터(192.168.0.125) 디스크</strong>를 다룹니다
+                (<code>car.save</code>·<code>car.load</code>) — 위 「저장…·열기…」의 이 PC 와는 다른 곳입니다.
+              </p>
+            </div>
+          </section>
+        </div>
+
+        <!-- ---------- 탭 ③ 카메라 컨트롤 ---------- -->
+        <div id="panelCam" hidden>
+          <section class="card">
+            <h2>시뮬레이터 카메라</h2>
+            <div class="body">
+              <div class="row">
+                <div class="field"><label for="camList">카메라</label><select id="camList"></select></div>
+                <button id="camAdd" type="button">추가</button>
+                <button id="camDelete" class="danger" type="button">삭제</button>
+              </div>
+              <p class="hint">지금 <strong>시뮬레이터에 실제로 있는</strong> 카메라입니다. 아래 위치·PTZ 조작이 이 카메라에 갑니다.</p>
+            </div>
+          </section>
+
+          <section class="card">
+            <h2>카메라 프리셋 파일 <span class="tag" id="kCount">-</span></h2>
+            <div class="body">
+              <div class="row">
+                <button id="kNew" type="button">새로 만들기</button>
+                <button id="kOpen" class="primary" type="button">열기…</button>
+                <button id="kSave" type="button">저장…</button>
+                <input id="kOpenInput" type="file" accept=".json,application/json" hidden>
+              </div>
+              <p class="hint" id="kStatus">-</p>
+              <p class="hint">
+                표준 위치는 <code>SettingMain/save/3D/CameraPos</code> 입니다.
+                <strong>브라우저는 대화상자의 시작 폴더를 지정할 수 없습니다</strong>(보안 제한) —
+                한 번 그 폴더에서 열고 나면 다음부터 거기서 열립니다.
+              </p>
+              <div class="row">
+                <div class="field"><label for="kList">프리셋</label><select id="kList" size="6"></select></div>
+              </div>
+              <div class="row">
+                <button id="kAdd" class="primary" type="button">현재 자세로 추가</button>
+                <button id="kUpdate" type="button">수정</button>
+                <button id="kDelete" class="danger" type="button">삭제</button>
+                <button id="kApply" class="danger" type="button">이 프리셋으로 이동</button>
+              </div>
+              <div class="row">
+                <div class="field"><label for="kName">이름</label><input id="kName" maxlength="60"></div>
+                <div class="field"><label for="kCamId">cam_id</label><input id="kCamId" type="number" min="1" value="1"></div>
+                <div class="field"><label for="kPresetId">preset_id</label><input id="kPresetId" type="number" min="1" value="1"></div>
+              </div>
+              <div class="row">
+                <div class="field"><label for="kPosX">X</label><input id="kPosX" type="number" step="0.001" value="0"></div>
+                <div class="field"><label for="kPosY">Y</label><input id="kPosY" type="number" step="0.001" value="0"></div>
+                <div class="field"><label for="kPosZ">Z (높이)</label><input id="kPosZ" type="number" step="0.001" value="0"></div>
+              </div>
+              <div class="row">
+                <div class="field"><label for="kPan">Pan (°)</label><input id="kPan" type="number" step="0.1" value="0"></div>
+                <div class="field"><label for="kTilt">Tilt (°)</label><input id="kTilt" type="number" step="0.1" value="0"></div>
+                <div class="field"><label for="kZoom">Zoom (배)</label><input id="kZoom" type="number" step="0.01" value="1"></div>
+              </div>
+              <p class="warn">
+                <strong>시뮬레이터에는 카메라 프리셋 개념이 없습니다.</strong>
+                <code>cam.savePreset</code>·<code>loadPreset</code>·<code>applyPreset</code> 셋 다
+                등록만 돼 있고 동작하지 않습니다(per-camera 프리셋 메모리 없음).
+                그래서 프리셋은 <strong>이 파일이 정본</strong>이고, 「이 프리셋으로 이동」은
+                <code>cam.setPosition</code>·<code>setHeight</code>·<code>setPTZ</code> 로 그 자세를 직접 만듭니다.
+              </p>
+            </div>
+          </section>
+
+          <section class="card">
+            <h2>카메라 위치 <span class="tag">언리얼 Z-up</span></h2>
+            <div class="body">
+              <div class="slider-row">
+                <label for="camZ">높이 (Z)</label>
+                <input id="camZMin" type="number" step="0.1" value="0" title="슬라이더 최솟값 (화면 전용)">
+                <input id="camZ" type="range" step="0.01">
+                <input id="camZMax" type="number" step="0.1" value="30" title="슬라이더 최댓값 (화면 전용)">
+                <output id="camZOut">-</output>
+              </div>
+              <div class="slider-row">
+                <label for="camX">X 축 (좌우)</label>
+                <input id="camXMin" type="number" step="0.1" value="-80">
+                <input id="camX" type="range" step="0.01">
+                <input id="camXMax" type="number" step="0.1" value="80">
+                <output id="camXOut">-</output>
+              </div>
+              <div class="slider-row">
+                <label for="camY">Y 축 (앞뒤)</label>
+                <input id="camYMin" type="number" step="0.1" value="-80">
+                <input id="camY" type="range" step="0.01">
+                <input id="camYMax" type="number" step="0.1" value="80">
+                <output id="camYOut">-</output>
+              </div>
+              <p class="hint">
+                <strong>Min/Max 는 슬라이더 범위일 뿐</strong>이고 시뮬레이터에 저장되지 않습니다(마스터 확인).
+                스크린샷의 「Camera Z 축 이동(앞뒤)」은 Unity 기준이라 여기서는 <strong>Y 축</strong>입니다 —
+                언리얼은 Z 가 높이입니다.
+              </p>
+            </div>
+          </section>
+
+          <!-- 마스터 지시: PTZ 슬라이더 3개를 빼고 그 자리에 컨트롤 패널을 넣는다 -->
+          <section class="card">
+            <h2>PTZ 제어</h2>
+            <div class="body">
+              <div class="ptz-grid">
+                <div class="ptz-cell"><div class="k">Pan (°)</div><div class="v" id="camPan">-</div></div>
+                <div class="ptz-cell"><div class="k">Tilt (°)</div><div class="v" id="camTilt">-</div></div>
+                <div class="ptz-cell"><div class="k">Zoom (배)</div><div class="v" id="camZoom">-</div></div>
+              </div>
+              <div class="pad">
+                <button class="up" data-axis="tilt" data-sign="1" title="위">▲</button>
+                <button class="left" data-axis="pan" data-sign="-1" title="왼쪽">◀</button>
+                <button class="stop" id="camRefresh" title="현재 PTZ 다시 읽기">읽기</button>
+                <button class="right" data-axis="pan" data-sign="1" title="오른쪽">▶</button>
+                <button class="down" data-axis="tilt" data-sign="-1" title="아래">▼</button>
+                <button class="zoom-in" data-axis="zoom" data-sign="1">+ zoom</button>
+                <button class="zoom-out" data-axis="zoom" data-sign="-1">− zoom</button>
+                <div class="step">
+                  <label for="camStep">step</label>
+                  <input id="camStep" type="number" value="2" min="0.01" step="0.01" title="pan·tilt 는 도(°), zoom 은 배율">
+                </div>
+              </div>
+              <p class="hint">
+                단위는 <strong>도(°)와 배율</strong>입니다 — 카메라 제어 화면의 정수 raw 와 다릅니다.
+                시뮬레이터 <code>cam.setPTZ</code> 에 속도 파라미터가 없으므로 <strong>현재값 + step</strong>을
+                절대값으로 보냅니다(없는 파라미터를 지어내지 않습니다).
+              </p>
+            </div>
+          </section>
+        </div>
+
+        <!-- ---------- 탭 ④ 거리 측정 ---------- -->
+        <div id="panelMeasure" hidden>
+          <section class="card">
+            <h2>타겟점</h2>
+            <div class="body">
+              <div class="row">
+                <div class="field"><label for="mCamId">카메라</label><select id="mCamId"></select></div>
+              </div>
+              <div class="row">
+                <div class="field"><label for="mTx">X</label><input id="mTx" type="number" step="0.01" value="0"></div>
+                <div class="field"><label for="mTy">Y</label><input id="mTy" type="number" step="0.01" value="0"></div>
+                <div class="field"><label for="mTz">Z (높이)</label><input id="mTz" type="number" step="0.01" value="0"></div>
+                <button id="mSetTarget" class="primary" type="button">타겟점 설치</button>
+              </div>
+              <p class="hint">
+                클릭으로 찍으려면 언리얼에 <code>view.pick</code> 신설이 필요합니다 — 지금은 좌표 입력입니다.
+                <strong>거리·각도는 타겟점을 설치해야 답합니다</strong>(안 하면 시뮬레이터가 그렇게 말합니다).
+              </p>
+            </div>
+          </section>
+
+          <section class="card">
+            <h2>측정 <span class="tag" id="mTag">대기</span></h2>
+            <div class="body">
+              <div class="row"><button id="mMeasure" class="primary" type="button">측정</button></div>
+              <div class="ptz-grid">
+                <div class="ptz-cell"><div class="k">거리 (바닥, m)</div><div class="v" id="mHorizontal">-</div></div>
+                <div class="ptz-cell"><div class="k">거리 (3D, m)</div><div class="v" id="mDistance3d">-</div></div>
+                <div class="ptz-cell"><div class="k">카메라 높이 (m)</div><div class="v" id="mHeight">-</div></div>
+              </div>
+              <div class="ptz-grid">
+                <div class="ptz-cell"><div class="k">수직각 (°)</div><div class="v" id="mVertical">-</div></div>
+                <div class="ptz-cell"><div class="k">수평각 (°)</div><div class="v" id="mHorizontalAngle">-</div></div>
+              </div>
+              <p class="hint">수직각은 <strong>양수가 내려다봄(↓)</strong>, 수평각은 카메라 전방 기준 양수가 오른쪽입니다. 기하 계산은 전부 시뮬레이터가 합니다.</p>
+            </div>
+          </section>
+
+          <section class="card">
+            <h2>타겟라인</h2>
+            <div class="body">
+              <div class="row">
+                <div class="field"><label for="mSx">시작 X</label><input id="mSx" type="number" step="0.01" value="0"></div>
+                <div class="field"><label for="mSz">시작 Z</label><input id="mSz" type="number" step="0.01" value="0"></div>
+              </div>
+              <div class="row">
+                <div class="field"><label for="mEx">끝 X</label><input id="mEx" type="number" step="0.01" value="10"></div>
+                <div class="field"><label for="mEz">끝 Z</label><input id="mEz" type="number" step="0.01" value="0"></div>
+                <button id="mTargetLine" type="button">각도 계산</button>
+              </div>
+              <p class="hint" id="mLineOut">수선의 발(0°) 기준 시작점·끝점의 수평각입니다.</p>
+            </div>
+          </section>
+        </div>
+
+        <!-- ---------- 탭 ⑤ 조명 설정 ---------- -->
+        <div id="panelLight" hidden>
+          <section class="card">
+            <h2>조명 설정 <span class="tag warn">언리얼 RPC 미구현</span></h2>
+            <div class="body">
+              <p class="warn">
+                이 툴은 <strong>아직 동작하지 않습니다.</strong> 시뮬레이터 RPC 서버에
+                <code>light.*</code> 가 등록돼 있지 않습니다 — 실측에서
+                <code>-32601 미등록 method: light.get</code> 이 돌아옵니다.
+              </p>
+              <p class="hint">
+                화면은 <strong>일부러 만들지 않았습니다.</strong> 부를 곳이 없는 입력칸을 그려 두면
+                값을 넣고 「적용」을 눌러도 아무 일이 안 일어나는데, 사용자는 적용됐다고 믿습니다.
+              </p>
+              <h3>신설이 필요한 것</h3>
+              <table class="grid"><thead><tr><th>method</th><th>대응하는 언리얼</th></tr></thead><tbody>
+                <tr><td><code>light.get</code> / <code>light.set</code></td><td>노출 EV100 · 태양 광량(lux) · 고도/방위 · 하늘광량 · 태양색</td></tr>
+                <tr><td><code>light.preset</code></td><td>낮 / 새벽 / 황혼 / 밤</td></tr>
+                <tr><td><code>light.save</code> / <code>light.load</code></td><td>JSON 저장·열기</td></tr>
+              </tbody></table>
+              <p class="hint">
+                스크린샷의 필드는 UE 물리 단위와 1:1 로 맞습니다 —
+                PostProcess 노출(EV100) · DirectionalLight Intensity(lux) · Rotation Pitch/Yaw ·
+                SkyLight Intensity · LightColor. 매핑은 설계서 §4.4⑤ 에 있습니다.
+              </p>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <!-- ============ 오른쪽: 뷰 (5탭 공용) ============ -->
+      <div class="parking-view">
+        <section class="card commissioning-view">
+          <h2>시뮬레이터 뷰 <span class="tag" id="simStreamTag">정지</span></h2>
+          <div class="viewport" id="simViewport">
+            <img id="simStream" alt="시뮬레이터 카메라 영상">
+            <div class="placeholder" id="simPlaceholder">영상은 자동으로 시작하지 않습니다. 카메라를 고르고 「시작」을 누르세요.</div>
+          </div>
+          <div class="body">
+            <div class="row">
+              <div class="field"><label for="simStreamCam">영상 소스</label><select id="simStreamCam"></select></div>
+              <button id="simStreamStart" class="primary" type="button">시작</button>
+              <button id="simStreamStop" type="button">정지</button>
+            </div>
+            <p class="warn" id="simStreamSlots" hidden></p>
+            <p class="hint">
+              <strong>지시 6의 「main 카메라」 스트림은 아직 없습니다.</strong> 시뮬레이터는 PTZ 카메라별
+              스트림(<code>13600+camId</code>)만 제공하고, 플레이어 뷰 스트림은 언리얼에
+              <code>view.*</code> + 전용 MJPEG 채널 신설이 필요합니다. 지금 보이는 것은
+              <strong>선택한 PTZ 카메라의 영상</strong>입니다.
+            </p>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <div id="status" role="status" aria-live="polite" aria-atomic="true"></div>
+  <script type="module" src="/simtool.js"></script>
+</body>
+</html>

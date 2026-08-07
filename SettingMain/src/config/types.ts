@@ -133,6 +133,21 @@ export interface Object3dConfig {
   timeoutMs: number;
 }
 
+/**
+ * 시뮬레이터 툴이 붙을 **언리얼 Park3D RPC 서버**.
+ *
+ * `simulator.baseUrl`(backend-core)과 **다른 것이다.** 그쪽은 카메라 코어를 원격으로
+ * 부르는 주소이고, 이쪽은 씬을 편집하는 시뮬레이터 자신의 JSON-RPC 다. 한 칸에 담으면
+ * 코어 구현을 바꿀 때 시뮬레이터 툴이 같이 끊긴다.
+ *
+ * 비어 있으면 시뮬레이터 툴이 **설정되지 않은 것**이고, 화면이 그 사실을 먼저 말한다.
+ */
+export interface SimToolConfig {
+  /** 예: `http://192.168.0.125:13510` — `POST {rpcUrl}/rpc` 로 조립한다. */
+  rpcUrl: string;
+  timeoutMs: number;
+}
+
 export interface AppConfig {
   server: { host: string; port: number };
   simulator: { baseUrl: string };
@@ -140,6 +155,7 @@ export interface AppConfig {
   core: CoreConfig;
   detectors: DetectorsConfig;
   object3d: Object3dConfig;
+  simTool: SimToolConfig;
   activeCameraId: string;
   cameras: CameraConfig[];
 }
@@ -157,6 +173,7 @@ export type CameraPatch = Partial<CameraConfig> & { id: string; rtspUrl?: string
 /** 옵션 페이지가 보내는 갱신 요청. 비밀번호는 빈 문자열이면 기존 값을 유지한다. */
 export interface SettingsPatch {
   simulator?: { baseUrl?: string };
+  simTool?: { rpcUrl?: string };
   core?: { provider?: CoreProviderChoice; perCamera?: Record<string, CoreProviderChoice> };
   activeCameraId?: string;
   cameras?: CameraPatch[];

@@ -173,6 +173,38 @@ export class DiscoveryDbStore {
       .run(camId, idNumber(id), idNumber(pointId)).changes > 0;
   }
 
+  /**
+   * 번호판 호밍이 확정한 **조준**을 굳힌다.
+   *
+   * `slot_setup.ptz_*` 는 스키마가 처음부터 이 값을 위해 둔 칸이다 —
+   * *"번호판 중심으로 센터라이징·줌인한 결과. 아직 안 잡았으면 NULL"*(`schema.ts`).
+   * 그래서 새 표를 만들지 않는다.
+   *
+   * **실패한 재호밍은 `null` 을 넣어 옛 값을 지운다.** 남겨 두면 그 조준이 이번에 확인된
+   * 것처럼 보이는데, 실제로는 다른 차의 것일 수 있다. 빈 칸이 틀린 값보다 낫다.
+   */
+  async saveAim(
+    presetId: string,
+    pointId: string,
+    aim: { closeupPtz: { pan: number; tilt: number; zoom: number } | null; plateBox: number[] | null },
+  ): Promise<boolean> {
+    const camId = this.camId();
+    if (camId === null) return false;
+    const row = this.slotRow(camId, idNumber(presetId), idNumber(pointId));
+    if (!row) return false;
+    this.db.prepare(`
+      UPDATE slot_setup SET ptz_pan = ?, ptz_tilt = ?, ptz_zoom = ?, lpd_obb = ?, updated_at = ? WHERE slot_id = ?
+    `).run(
+      aim.closeupPtz ? Math.round(aim.closeupPtz.pan) : null,
+      aim.closeupPtz ? Math.round(aim.closeupPtz.tilt) : null,
+      aim.closeupPtz ? Math.round(aim.closeupPtz.zoom) : null,
+      aim.plateBox ? JSON.stringify(aim.plateBox) : null,
+      this.now(),
+      row.slot_id,
+    );
+    return true;
+  }
+
   async clearPoints(id: string): Promise<number | null> {
     const camId = this.camId();
     if (camId === null || !(await this.getPreset(id))) return null;

@@ -6,6 +6,9 @@ import { DatabaseError } from '../db/database.js';
 import { ConfigError } from '../config/normalize.js';
 import { PresetError } from '../domain/preset.js';
 import { CalibrationError } from '../calibration/calibrationJob.js';
+import { HomeTraceError } from '../homing/homeTraceStore.js';
+import { PlateHomingError } from '../homing/plateHomingJob.js';
+import { PlateHomingUnsupported } from '../homing/plateHomingComponent.js';
 import { SoftwareCenteringError } from '../centering/softwareCentering.js';
 import { ProfileError, ProfileStore } from '../profiles/profileStore.js';
 import { DbIntrinsicsSink } from '../profiles/dbIntrinsicsSink.js';
@@ -22,6 +25,9 @@ import { presetRoutes, slotRoutes } from './routes/presetRoutes.js';
 import { ptzRoutes } from './routes/ptzRoutes.js';
 import { createRouteContext, type RouteHandler, type ServerDeps } from './routes/routeContext.js';
 import { settingsRoutes } from './routes/settingsRoutes.js';
+import { simRoutes } from './routes/simRoutes.js';
+import { SimRpcError } from '../sim/simRpcClient.js';
+import { SimFileError } from '../sim/simFiles.js';
 import { serveStatic } from './staticFiles.js';
 
 export type { ServerDeps } from './routes/routeContext.js';
@@ -56,6 +62,10 @@ export function createServer(deps: ServerDeps): Server {
   /** 순서가 계약이다 — 앞선 라우트가 false 를 돌려줘야 다음이 본다. */
   const handlers: RouteHandler[] = [
     healthRoutes,
+    // 시뮬레이터 툴은 `/api/sim/` 전용이라 어느 자리에 두어도 충돌하지 않는다.
+    // 앞쪽에 두는 이유는 **이 경로가 카메라·DB 를 만지지 않는다**는 것을 배치로 드러내기
+    // 위해서다 — 뒤에 두면 앞선 라우트들이 드라이버를 조립하려 시도한 뒤에야 닿는다.
+    simRoutes,
     coreRoutes,
     createProfileRoutes(profiles),
     settingsRoutes,
@@ -101,10 +111,16 @@ function fail(res: ServerResponse, error: unknown): void {
   if (error instanceof CoreNotFoundError) return sendError(res, error.statusCode, error.message);
   if (error instanceof ProfileError) return sendError(res, error.statusCode, error.message);
   if (error instanceof CalibrationError) return sendError(res, error.statusCode, error.message);
+  if (error instanceof PlateHomingUnsupported) return sendError(res, error.statusCode, error.message);
+  if (error instanceof PlateHomingError) return sendError(res, error.statusCode, error.message);
+  // 경로 조작은 **403** 이다 — 404 로 뭉개면 "없다"와 "주면 안 된다"가 구별되지 않는다.
+  if (error instanceof HomeTraceError) return sendError(res, error.statusCode, error.message);
   if (error instanceof SoftwareCenteringError) return sendError(res, error.statusCode, error.message);
   if (error instanceof DetectorUnsupportedError) return sendError(res, error.statusCode, error.message);
   if (error instanceof DetectorError) return sendError(res, error.statusCode, error.message);
   if (error instanceof DatabaseError) return sendError(res, error.statusCode, error.message);
+  if (error instanceof SimRpcError) return sendError(res, error.statusCode, error.message);
+  if (error instanceof SimFileError) return sendError(res, error.statusCode, error.message);
   if (error instanceof CameraDriverError) return sendError(res, error.statusCode, error.message);
   if (error instanceof ConfigError) return sendError(res, error.statusCode, error.message);
   sendError(res, 500, error instanceof Error ? error.message : String(error));

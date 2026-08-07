@@ -1,6 +1,7 @@
 import { createCoreProvider, type CoreProviderDeps } from '../../core/providerFactory.js';
 import type { CoreContext } from '../../core/coreProvider.js';
 import type { CalibrationComponent } from '../../calibration/calibrationComponent.js';
+import type { PlateHomingComponent } from '../../homing/plateHomingComponent.js';
 import { HttpError, readJsonBody, requireString, sendJson } from '../httpUtil.js';
 import { asId, requireCenterCoordinate, type RouteHandler } from './routeContext.js';
 
@@ -13,9 +14,26 @@ import { asId, requireCenterCoordinate, type RouteHandler } from './routeContext
  * 이 파일에는 `if (provider === …)` 가 없다 — 구현 분기는 `core/providerFactory.ts` 하나뿐이다.
  */
 export function createCoreRoutes(deps: CoreProviderDeps, calibration?: CalibrationComponent): RouteHandler {
+  const homing = deps.components?.plateHoming;
   return async (ctx) => {
     const { req, res, pathname, method, driverFor } = ctx;
     if (!pathname.startsWith('/api/core/')) return false;
+
+    // --- 호밍 과정 다시보기 ---------------------------------------------------
+    //
+    // **드라이버를 만들기 전에 처리한다.** 이 둘은 카메라를 만지지 않고 디스크만 읽으므로,
+    // 카메라 설정이 사라진 뒤에도 지난 호밍이 무엇을 봤는지는 볼 수 있어야 한다.
+    const frame = /^\/api\/core\/home-frame\/([^/]+)\/([^/]+)\/([^/]+)\/(\d+)$/.exec(pathname);
+    if (frame && method === 'GET') {
+      if (!homing) throw new HttpError(501, '번호판 호밍 컴포넌트가 배선되지 않았습니다');
+      const jpeg = await homing.frame(
+        decodeURIComponent(frame[1]!), decodeURIComponent(frame[2]!), decodeURIComponent(frame[3]!), Number(frame[4]),
+      );
+      if (!jpeg) throw new HttpError(404, '그 스텝의 프레임이 없습니다');
+      res.writeHead(200, { 'content-type': 'image/jpeg', 'content-length': jpeg.length, 'cache-control': 'no-store' });
+      res.end(jpeg);
+      return true;
+    }
 
     const body = ['POST', 'PUT'].includes(method) ? await readJsonBody(req) : undefined;
     const { camera, config, driver } = driverFor(asId(body?.cameraId));
@@ -42,6 +60,16 @@ export function createCoreRoutes(deps: CoreProviderDeps, calibration?: Calibrati
         endY: requireCenterCoordinate(body!, 'endY', 1080),
       };
       sendJson(res, 200, { provider: provider.name, ...(await provider.centerBox(coreCtx, box)) });
+      return true;
+    }
+
+    // --- 호밍 결과 다시보기(점 하나) ------------------------------------------
+    const trace = /^\/api\/core\/discovery\/presets\/([^/]+)\/points\/([^/]+)\/home-trace$/.exec(pathname);
+    if (trace && method === 'GET') {
+      if (!homing) throw new HttpError(501, '번호판 호밍 컴포넌트가 배선되지 않았습니다');
+      const record = await homing.trace(camera.id, decodeURIComponent(trace[1]!), decodeURIComponent(trace[2]!));
+      // 기록이 없는 것은 **오류가 아니다** — 아직 호밍하지 않았거나 재기동으로 지워졌을 수 있다.
+      sendJson(res, 200, record ?? { cameraId: camera.id, steps: [] });
       return true;
     }
 
