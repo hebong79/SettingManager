@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { transaction } from './database.js';
 import { SetupRepository, type CameraRow } from './setupRepository.js';
-import { normalizeCamera } from '../config/normalize.js';
+import { normalizeCamera, normalizeIntrinsics } from '../config/normalize.js';
 import type { CameraConfig } from '../config/types.js';
 
 /**
@@ -118,11 +118,18 @@ function diff(before: CameraConfig, after: CameraConfig): string[] {
   return problems;
 }
 
+/**
+ * DB 의 `intrinsics` 문자열 → 광학.
+ *
+ * **`normalizeIntrinsics` 를 통과시킨다** — 파일에서 온 값과 DB 에서 온 값이 같은 규칙을 거쳐야
+ * 두 경로가 갈라지지 않는다. 예전에는 여기서 `zoomHfov` 가 배열이기만 하면 통과시켰는데,
+ * 그러면 곡선 둘 중 하나(`centeringGain`)가 조용히 버려지고 앵커가 뒤집힌 표도 그대로 들어온다.
+ */
 function parseIntrinsics(raw: string | null): { intrinsics: CameraConfig['intrinsics'] } | null {
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as { zoomHfov?: unknown };
-    return Array.isArray(parsed?.zoomHfov) ? { intrinsics: parsed as CameraConfig['intrinsics'] } : null;
+    const intrinsics = normalizeIntrinsics(JSON.parse(raw));
+    return intrinsics ? { intrinsics } : null;
   } catch {
     // 깨진 JSON 은 "표가 없다"로 본다 — 반쯤 맞는 표로 조준하면 조용히 빗나간다.
     return null;

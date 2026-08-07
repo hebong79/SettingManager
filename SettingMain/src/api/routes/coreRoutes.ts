@@ -1,5 +1,6 @@
 import { createCoreProvider, type CoreProviderDeps } from '../../core/providerFactory.js';
 import type { CoreContext } from '../../core/coreProvider.js';
+import type { CalibrationComponent } from '../../calibration/calibrationComponent.js';
 import { HttpError, readJsonBody, requireString, sendJson } from '../httpUtil.js';
 import { asId, requireCenterCoordinate, type RouteHandler } from './routeContext.js';
 
@@ -11,7 +12,7 @@ import { asId, requireCenterCoordinate, type RouteHandler } from './routeContext
  *
  * 이 파일에는 `if (provider === …)` 가 없다 — 구현 분기는 `core/providerFactory.ts` 하나뿐이다.
  */
-export function createCoreRoutes(deps: CoreProviderDeps): RouteHandler {
+export function createCoreRoutes(deps: CoreProviderDeps, calibration?: CalibrationComponent): RouteHandler {
   return async (ctx) => {
     const { req, res, pathname, method, driverFor } = ctx;
     if (!pathname.startsWith('/api/core/')) return false;
@@ -94,6 +95,15 @@ export function createCoreRoutes(deps: CoreProviderDeps): RouteHandler {
       sendJson(res, 200, { provider: provider.name, ...(await provider.vehicleBox.detect(coreCtx)) });
       return true;
     }
+    // 저장된 검출 이력. **브리지 전용 능력**이라 포트에 두지 않았다 — 원격 코어(backend-core)는
+    // 검출을 저장하지 않으므로, 포트에 넣으면 그쪽이 영원히 501 인 표면이 하나 늘어난다.
+    if (method === 'GET' && pathname === '/api/core/vehicle-box/history') {
+      const component = deps.components?.vehicleBox;
+      if (!component) throw new HttpError(501, '차량 3D 육면체 컴포넌트가 배선되지 않았습니다');
+      const limit = Number(ctx.searchParams.get('limit') ?? 20);
+      sendJson(res, 200, { cameraId: camera.id, records: component.history(camera, Number.isFinite(limit) ? limit : 20) });
+      return true;
+    }
 
     // --- 커미셔닝 주차면 ---------------------------------------------------
     // `/api/slots`(시뮬·로컬 목록)와 다른 것이다 — 여기는 사람이 확정해 저장한 조준해다.
@@ -124,6 +134,19 @@ export function createCoreRoutes(deps: CoreProviderDeps): RouteHandler {
         sendJson(res, 200, { cameraId: camera.id, ...(await provider.parkingSlots.remove(coreCtx, slotId)) });
         return true;
       }
+    }
+
+    // --- 캘리브레이션 발행 --------------------------------------------------
+    //
+    // 스윕이 끝나자마자 자동 발행하지 않는 이유가 둘이다: 게이트에 걸렸을 때 사람이
+    // 「그래도 발행」을 고를 여지가 있어야 하고, 돌려 **보기만** 할 수도 있어야 한다.
+    if (method === 'POST' && pathname === '/api/core/calibration/mint') {
+      if (!calibration) throw new HttpError(501, '캘리브레이션 컴포넌트가 배선되지 않았습니다');
+      sendJson(res, 200, {
+        cameraId: camera.id,
+        ...(await calibration.mint(camera, { apply: body?.apply !== false, force: body?.force === true })),
+      });
+      return true;
     }
 
     // --- 잡(캘리브레이션·번호판 호밍) --------------------------------------

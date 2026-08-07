@@ -1,5 +1,5 @@
-import { hfovFromZoomPos } from '../../vendor/baro-profile/index.mjs';
-import type { CameraIntrinsics } from '../../config/types.js';
+import { hfovFromZoomPos } from '../vendor/baro-profile/index.mjs';
+import type { CameraIntrinsics } from '../config/types.js';
 
 /**
  * 줌 눈금 ↔ 수평 화각. 정방향은 **벤더링한 `@baro/profile` 을 그대로 쓴다**(다시 구현하지 않는다).

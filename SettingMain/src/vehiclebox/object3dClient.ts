@@ -1,4 +1,4 @@
-import { DetectorError } from './detectorTypes.js';
+import { DetectorError } from '../detectors/detectorTypes.js';
 
 /**
  * 3D 차량 박스 추론 사이드카(`baro_calory/tools/baro_object3d_api`, 기본 :9070) 클라이언트.

@@ -479,7 +479,7 @@ const V3_CAMERAS: ReadonlyArray<CameraRow & { cam_company: string }> = [
     cam_id: 1, cam_name: '리얼 1', cam_uuid: 'real-camera-1', url: 'http://192.168.0.21:80',
     user_id: 'admin', password: 'pw1', rtsp_url: 'rtsp://192.168.0.21:554/stream1',
     cam_type: 'ptz', cam_company: '휴컴스', place_id: 1,
-    timeout_ms: 3000, kind: 'hucoms', park3d_cam_id: null, insecure_tls: 0, intrinsics: '{"zoomHfov":[{"z":0,"h":57.14}]}',
+    timeout_ms: 3000, kind: 'hucoms', park3d_cam_id: null, insecure_tls: 0, intrinsics: JSON.stringify({ zoomHfov: [{ z: 0, h: 57.14 }, { z: 16384, h: 2.39 }] }),
   },
   {
     cam_id: 3, cam_name: 'UE 시뮬 1 (8081)', cam_uuid: 'simulator-1', url: 'http://127.0.0.1:8081',
@@ -671,7 +671,7 @@ describe('경계면 교차 — camera_info 표 ↔ CameraRow ↔ upsertCamera IN
     kind: 'park3d-rpc',
     park3d_cam_id: 9,
     insecure_tls: 1,
-    intrinsics: '{"zoomHfov":[{"z":0,"h":57.14}]}',
+    intrinsics: JSON.stringify({ zoomHfov: [{ z: 0, h: 57.14 }, { z: 16384, h: 2.39 }] }),
   };
 
   it('표의 열 집합과 CameraRow 의 키 집합이 정확히 같다', () => {
@@ -715,7 +715,7 @@ describe('경계면 교차 — camera_info 표 ↔ CameraRow ↔ upsertCamera IN
       timeoutMs: 1234,
       place_id: 3,
       camId: 9,
-      intrinsics: { zoomHfov: [{ z: 0, h: 57.14 }] },
+      intrinsics: { zoomHfov: [{ z: 0, h: 57.14 }, { z: 16384, h: 2.39 }] },
     });
   });
 });

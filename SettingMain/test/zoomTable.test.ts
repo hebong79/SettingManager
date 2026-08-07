@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hfovAt, zoomPosForHfov } from '../src/core/bridge/zoomTable.js';
+import { hfovAt, zoomPosForHfov } from '../src/centering/zoomTable.js';
 import type { CameraIntrinsics } from '../src/config/types.js';
 
 /**

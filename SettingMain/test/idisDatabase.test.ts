@@ -178,11 +178,11 @@ describe('T-DB1 새 DB 에 IDIS 카메라', () => {
 });
 
 describe('T-DB2 판 올림', () => {
-  it('연 직후 user_version 이 SCHEMA_VERSION(=5) 이다', () => {
+  it('연 직후 user_version 이 SCHEMA_VERSION(=6) 이다', () => {
     const db = openDatabase({ path: ':memory:' });
     try {
-      expect(SCHEMA_VERSION).toBe(5);
-      expect((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(5);
+      expect(SCHEMA_VERSION).toBe(6);
+      expect((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(6);
     } finally {
       db.close();
     }

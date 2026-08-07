@@ -49,6 +49,12 @@ interface RpcEnvelope {
 export class Park3DRpcClient implements CameraDriver {
   readonly kind = 'park3d-rpc';
   readonly cameraId: string;
+  /**
+   * 이 기기가 실제로 도달하는 줌 눈금(배율×100). **Hucoms 의 불투명 raw 와 뜻이 다르다** —
+   * 여기 값에는 물리적 의미가 있어서, 와이드 화각 하나만 알면 곡선 전체가 해석적으로 나온다:
+   * `HFOV(m) = 2·atan( tan(HFOV₁/2) / m )`.
+   */
+  readonly zoomRange = { min: ZOOM_RAW_MIN, max: ZOOM_RAW_MAX };
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
 

@@ -62,9 +62,25 @@ export interface CameraConfig {
   intrinsics?: CameraIntrinsics;
 }
 
-/** 줌 눈금 → 수평 화각(도) 앵커. z 오름차순이며, 표 밖은 외삽하지 않고 양 끝에서 잘린다. */
+/**
+ * 이 기기의 실측 광학. **곡선 둘이며 하나로 합치지 않는다** — 하나는 그리는 데,
+ * 하나는 조준하는 데 쓴다(근거: baro_calory `docs/calibration.md` §두 곡선과 그 분리).
+ *
+ * `zoomHfov` 없이 `centeringGain` 만 있는 상태는 만들지 않는다. 게인은 조준 사슬의
+ * **마지막 보정**이고, 그 앞의 픽셀→각도 변환이 화각을 필요로 하기 때문이다.
+ */
 export interface CameraIntrinsics {
+  /** 줌 눈금 → 수평 화각(도) 앵커. z 오름차순이며, 표 밖은 외삽하지 않고 양 끝에서 잘린다. */
   zoomHfov: Array<{ z: number; h: number }>;
+  /**
+   * 줌 눈금 → 센터링 게인 앵커(`k = f_firmware / f_lens`). 클릭 픽셀을 k 배 미리 늘려
+   * 펌웨어의 부족 회전을 상쇄한다.
+   *
+   * **없으면 k=1 로 간다 — 내장 표를 기본값으로 들지 않는다.** 그 표는 cam-001 한 대의
+   * 곡선이고 **단조가 아니다**(z8000 에서 1.11, z16384 에서 0.765). 다른 렌즈에 씌우면
+   * 망원 오차를 개선이 아니라 **악화**시킨다.
+   */
+  centeringGain?: Array<{ z: number; k: number }>;
 }
 
 export interface StreamingConfig {

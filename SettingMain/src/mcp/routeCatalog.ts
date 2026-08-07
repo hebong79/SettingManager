@@ -77,15 +77,48 @@ export const ROUTE_CATALOG: readonly RouteCatalogEntry[] = [
   { method: 'GET', path: '/api/core/calibration/status', title: '캘리브레이션 상태', mutating: false, movesCamera: false },
   { method: 'POST', path: '/api/core/calibration/stop', title: '캘리브레이션 중단', mutating: false, movesCamera: false, notes: '실행 중이 아니어도 오류가 아니다.' },
   {
+    method: 'POST', path: '/api/core/calibration/mint', title: '캘리브레이션 발행', mutating: true, movesCamera: false,
+    notes: '방금 끝난 full 스윕을 프로파일 리비전으로 발행한다. { apply?, force? } — 게이트 미달이면 422 + 사유이고, force:true 로 넘기면 사유가 문서에 박힌다.',
+  },
+  {
     method: 'POST', path: '/api/core/plate-homing/start', title: '번호판 호밍 시작', mutating: true, movesCamera: true,
     notes: '{ presetId, pointIds? } — 점마다 카메라를 조준·줌인한다.',
   },
   { method: 'GET', path: '/api/core/plate-homing/status', title: '번호판 호밍 상태', mutating: false, movesCamera: false },
   { method: 'POST', path: '/api/core/plate-homing/stop', title: '번호판 호밍 중단', mutating: false, movesCamera: false },
 
+  // --- 카메라 프로파일 (발행본) --------------------------------------------------
+  // 경로는 정규식으로 잡으므로 위 소스 스캔에 잡히지 않는다. 그래도 여기 적는다 —
+  // 에이전트가 광학 곡선을 읽고 넣는 유일한 창구이고, 없으면 그 문이 없는 것과 같다.
+  { method: 'GET', path: '/api/profiles/camera/:id', title: '프로파일 리비전·현재 적용본·드리프트', mutating: false, movesCamera: false },
+  {
+    method: 'GET', path: '/api/profiles/camera/:id/@:rev', title: '프로파일 고정 조회', mutating: false, movesCamera: false,
+    notes: '리비전은 불변이라 이 조회는 영원히 같은 값을 답한다.',
+  },
+  {
+    method: 'POST', path: '/api/profiles/camera/:id', title: '프로파일 발행(import)', mutating: true, movesCamera: false,
+    notes: '{ optics: { zoomHfov[], centeringGain?[] }, apply?, force? } — 적용이 먼저, 발행이 나중이다. 손으로 넣은 곡선은 문서가 스스로 "재지 않았다"고 말한다.',
+  },
+  {
+    method: 'POST', path: '/api/profiles/camera/:id/copy', title: '프로파일 복사', mutating: true, movesCamera: false,
+    notes: '{ from, revision? } — **광학만** 옮긴다. 눈금(device 블록)은 대상 기기 것으로 새로 찍는다.',
+  },
+  {
+    method: 'POST', path: '/api/profiles/camera/:id/apply', title: '프로파일 적용·되돌리기', mutating: true, movesCamera: false,
+    notes: '{ revision? } — 다음 조준부터 이 곡선을 쓴다. 카메라를 지금 움직이지는 않는다.',
+  },
+  {
+    method: 'DELETE', path: '/api/profiles/camera/:id', title: '프로파일 퇴역', mutating: true, movesCamera: false,
+    notes: '파기가 아니라 .trash 로 이동이다. 런타임 적용본은 건드리지 않는다.',
+  },
+
   {
     method: 'GET', path: '/api/core/vehicle-box/status', title: '3D 차량 박스 준비 상태', mutating: false, movesCamera: false,
     notes: '사이드카가 죽어 있어도 200 으로 사실을 답한다.',
+  },
+  {
+    method: 'GET', path: '/api/core/vehicle-box/history', title: '3D 차량 박스 검출 이력', mutating: false, movesCamera: false,
+    notes: '?limit= (기본 20, 최대 200). detections 는 사이드카 어휘 그대로다.',
   },
   {
     method: 'POST', path: '/api/core/vehicle-box', title: '지금 프레임의 차량 3D 육면체', mutating: false, movesCamera: false,
