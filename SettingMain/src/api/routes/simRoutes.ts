@@ -2,9 +2,10 @@ import { readJsonBody, sendJson } from '../httpUtil.js';
 import { SIM_CATALOG } from '../../sim/simCatalog.js';
 import { loadCarCatalog } from '../../sim/carCatalog.js';
 import {
-  PARSERS, RESULT_KEY, SimFileError, isSaveKind, listSimFiles, parsePresets,
-  readCameraFile, readCarFile, readPresetFile, serializePresets,
+  PARSERS, RESULT_KEY, SERIALIZERS, SimFileError, isSaveKind, listSimFiles,
+  readCameraFile, readCarFile, readPresetFile,
 } from '../../sim/simFiles.js';
+import { rpcToFile, vec3 } from '../../sim/simCoords.js';
 import { SimRpcClient, SimRpcError } from '../../sim/simRpcClient.js';
 import type { RouteHandler } from './routeContext.js';
 
@@ -69,13 +70,19 @@ export const simRoutes: RouteHandler = async (ctx) => {
 
   // 저장 — 화면이 들고 있는 목록을 **파일 모양(Unity 좌표)** 으로 되돌린다.
   // 읽기와 같은 자리에서 축을 바꾼다: 규약이 읽기/쓰기로 갈리면 열었다 저장한 것만으로
-  // 배치가 틀어지고 그 실패는 오류로 뜨지 않는다.
-  if (method === 'POST' && pathname === '/api/sim/files/preset/serialize') {
+  // 배치가 틀어지고, 그 실패는 화면에 오류로 뜨지 않는다.
+  const serialize = /^\/api\/sim\/files\/([a-z]+)\/serialize$/.exec(pathname);
+  if (serialize && method === 'POST') {
+    const kind = serialize[1]!;
+    if (!isSaveKind(kind)) throw new SimFileError(`알 수 없는 저장 종류입니다: ${kind}`);
     const body = await readJsonBody(req, 4 * 1024 * 1024);
+    const rows = body[RESULT_KEY[kind]];
+    if (!Array.isArray(rows)) throw new SimFileError(`${RESULT_KEY[kind]} 배열이 필요합니다`, 400);
     // 화면이 준 것을 그대로 믿지 않고 **해석기를 한 번 통과시킨다** — 모양이 어긋난 값이
-    // 파일로 굳는 것을 여기서 막는다.
-    const presets = parsePresets({ datas: toFileRows(body.presets) }, '(저장 요청)');
-    sendJson(res, 200, { kind: 'preset', file: serializePresets(presets) });
+    // 파일로 굳는 것을 여기서 막는다. 축을 되돌려 파일 모양으로 만든 뒤 해석기에 넣으면
+    // 왕복해서 제자리로 오고, 그 과정에서 검사·기본값 채우기가 함께 일어난다.
+    const checked = PARSERS[kind]({ datas: rows.map((row) => toFileRow(kind, row)) }, '(저장 요청)');
+    sendJson(res, 200, { kind, file: (SERIALIZERS[kind] as (r: unknown[]) => unknown)(checked as unknown[]) });
     return true;
   }
 
@@ -107,19 +114,29 @@ export const simRoutes: RouteHandler = async (ctx) => {
 };
 
 /**
- * 화면이 준 RPC 좌표 프리셋을 해석기가 아는 **파일 행 모양**으로 되돌린다.
- * `parsePresets` 를 한 번 더 태우기 위한 것이라, 여기서는 축만 되돌리고 검사는 하지 않는다.
+ * 화면이 준 **RPC 좌표** 행을 해석기가 아는 **파일 행 모양**으로 되돌린다.
+ *
+ * 해석기를 한 번 더 태우기 위한 것이라 여기서는 **축과 키 이름만** 바꾸고 검사는 하지
+ * 않는다 — 검사는 해석기가 한다. 축 규칙은 `simCoords.rpcToFile` 하나를 쓴다.
  */
-function toFileRows(raw: unknown): unknown[] {
-  if (!Array.isArray(raw)) throw new SimFileError('presets 배열이 필요합니다', 400);
-  return raw.map((entry) => {
-    const preset = (entry ?? {}) as Record<string, unknown>;
-    const offset = (preset.offset ?? {}) as Record<string, unknown>;
-    return {
-      ...preset,
-      // RPC(x,y,z) → 파일(y,z,x). `simCoords.rpcToFile` 과 같은 규칙이며, 여기서는
-      // 해석기가 다시 `fileToRpc` 를 태울 것이므로 왕복해서 제자리로 온다.
-      offsetPos: { x: offset.y, y: offset.z, z: offset.x },
-    };
-  });
+function toFileRow(kind: 'preset' | 'car' | 'camera', raw: unknown): unknown {
+  const row = (raw ?? {}) as Record<string, unknown>;
+  if (kind === 'preset') return { ...row, offsetPos: rpcToFile(vec3(row.offset)) };
+  if (kind === 'car') return { ...row, pos: rpcToFile(vec3(row.pos)) };
+  // 카메라는 해석기가 두 겹 `datas` 를 받지만 안쪽이 없으면 바깥을 한 건으로 본다 —
+  // 그래서 평평한 행을 그대로 넣어도 통과한다.
+  const limits = (row.limits ?? {}) as Record<string, number[] | undefined>;
+  return {
+    ...row,
+    sname: row.name,
+    cam_id: row.camId,
+    preset_id: row.presetId,
+    pos: rpcToFile(vec3(row.pos)),
+    ...(limits.pan && limits.tilt && limits.zoom
+      ? {
+        ptzmin: { p: limits.pan[0], t: limits.tilt[0], z: limits.zoom[0] },
+        ptzmax: { p: limits.pan[1], t: limits.tilt[1], z: limits.zoom[1] },
+      }
+      : {}),
+  };
 }

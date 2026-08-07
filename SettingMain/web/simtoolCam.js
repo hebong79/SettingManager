@@ -1,4 +1,7 @@
+import { createFileBar } from './simtoolFileBar.js';
+
 const el = (id) => document.getElementById(id);
+const num = (id) => Number(el(id).value);
 const fmt = (v, digits = 2) => (typeof v === 'number' && Number.isFinite(v) ? v.toFixed(digits) : '-');
 
 /**
@@ -33,11 +36,15 @@ const fmt = (v, digits = 2) => (typeof v === 'number' && Number.isFinite(v) ? v.
  *
  * `{camId, x, y}` 로 평평하게 보내면 파라미터가 안 잡힌다 — `{camId, pos:{x,y,z}}` 여야 한다.
  *
- * ## 카메라 프리셋은 **시뮬레이터에 없다**
+ * ## 카메라 프리셋의 정본은 **파일**이다
  *
  * `cam.savePreset`·`loadPreset`·`applyPreset` 셋 다 등록만 돼 있고 동작하지 않는다
- * (per-camera 프리셋 메모리 없음 — 문서 §10). 그래서 그 버튼을 만들지 않았다.
- * 문서는 이것이 "웹 프리셋 이동 = PTZ만 변경" 현상의 직접 원인이라고 적고 있다.
+ * (per-camera 프리셋 메모리 없음 — 문서 §10). 문서는 이것이 "웹 프리셋 이동 = PTZ만 변경"
+ * 현상의 직접 원인이라고 적고 있다.
+ *
+ * 그래서 프리셋은 `save/3D/CameraPos` 의 파일이 정본이고, 다른 두 탭과 **같은 형태**로
+ * 새로 만들기·열기…·저장…·추가/수정/삭제를 둔다. 「이 프리셋으로 이동」은 없는 RPC 를
+ * 부르는 대신 `cam.setPosition`·`setHeight`·`setPTZ` 로 **그 자세를 직접 만든다.**
  *
  * ## 상대 이동을 절대값으로 보낸다
  *
@@ -47,6 +54,59 @@ const fmt = (v, digits = 2) => (typeof v === 'number' && Number.isFinite(v) ? v.
 export function createCamPanel(ctx) {
   let ptz = null;
   let syncing = false;
+  /** 파일에서 읽은 카메라 프리셋들. 시뮬레이터의 현재 상태와 **다른 것**이다. */
+  let saved = [];
+
+  const bar = createFileBar({
+    kind: 'camera',
+    resultKey: 'cameras',
+    defaultName: 'CamPos_new.json',
+    ids: { newButton: 'kNew', openButton: 'kOpen', openInput: 'kOpenInput', saveButton: 'kSave', status: 'kStatus' },
+    getRows: () => saved,
+    setRows: (rows) => { saved = rows; renderSaved(''); },
+    ctx,
+  });
+
+  const pickedSaved = () => saved.find((row) => String(row.idx) === el('kList').value);
+
+  function renderSaved(keepIdx) {
+    const previous = keepIdx ?? el('kList').value;
+    el('kList').replaceChildren(...saved.map((row) =>
+      new Option(`${row.presetId}. ${row.name || '(이름 없음)'}  · cam ${row.camId}  · P${fmt(row.pan, 1)} T${fmt(row.tilt, 1)} Z${fmt(row.zoom, 2)}`, String(row.idx))));
+    if (previous && saved.some((row) => String(row.idx) === String(previous))) el('kList').value = String(previous);
+    el('kCount').textContent = `${saved.length}건`;
+    bar.render();
+    showSavedForm();
+  }
+
+  function showSavedForm() {
+    const row = pickedSaved();
+    if (!row) return;
+    el('kName').value = row.name ?? '';
+    el('kCamId').value = row.camId ?? 1;
+    el('kPresetId').value = row.presetId ?? 1;
+    el('kPosX').value = fmt(row.pos?.x, 3);
+    el('kPosY').value = fmt(row.pos?.y, 3);
+    el('kPosZ').value = fmt(row.pos?.z, 3);
+    el('kPan').value = fmt(row.pan, 1);
+    el('kTilt').value = fmt(row.tilt, 1);
+    el('kZoom').value = fmt(row.zoom, 2);
+  }
+
+  /** 폼 → 프리셋 1건. `limits` 는 파일에 있던 것을 보존한다(화면이 다루지 않는다). */
+  function formSaved(idx, previous) {
+    return {
+      idx,
+      name: el('kName').value.trim() || `Preset ${num('kPresetId')}`,
+      camId: num('kCamId'),
+      presetId: num('kPresetId'),
+      pos: { x: num('kPosX'), y: num('kPosY'), z: num('kPosZ') },
+      pan: num('kPan'),
+      tilt: num('kTilt'),
+      zoom: num('kZoom'),
+      ...(previous?.limits ? { limits: previous.limits } : {}),
+    };
+  }
 
   const AXES = [
     { key: 'z', slider: 'camZ', min: 'camZMin', max: 'camZMax', out: 'camZOut' },
@@ -135,6 +195,66 @@ export function createCamPanel(ctx) {
   }
 
   const guard = (fn) => (...args) => void fn(...args).catch(ctx.reportError);
+  const attempt = (fn) => () => { try { fn(); } catch (error) { ctx.reportError(error); } };
+
+  // --- 파일 프리셋 (다른 두 탭과 같은 형태) ---------------------------------
+
+  el('kList').addEventListener('change', showSavedForm);
+
+  /** 「현재 자세로 추가」 — 지금 시뮬레이터가 보고 있는 값을 그대로 굳힌다. */
+  el('kAdd').addEventListener('click', guard(async () => {
+    const camera = currentCamera();
+    if (camera) {
+      el('kCamId').value = camera.camId;
+      el('kPosX').value = fmt(camera.pos?.x, 3);
+      el('kPosY').value = fmt(camera.pos?.y, 3);
+      el('kPosZ').value = fmt(camera.pos?.z, 3);
+    }
+    if (ptz) {
+      el('kPan').value = fmt(ptz.pan, 1);
+      el('kTilt').value = fmt(ptz.tilt, 1);
+      el('kZoom').value = fmt(ptz.zoom, 2);
+    }
+    const idx = saved.length ? Math.max(...saved.map((row) => row.idx)) + 1 : 0;
+    saved = [...saved, formSaved(idx)];
+    bar.markDirty();
+    renderSaved(idx);
+  }));
+
+  el('kUpdate').addEventListener('click', attempt(() => {
+    const row = pickedSaved();
+    if (!row) throw new Error('프리셋을 선택하세요');
+    saved = saved.map((entry) => (entry.idx === row.idx ? formSaved(row.idx, entry) : entry));
+    bar.markDirty();
+    renderSaved(row.idx);
+  }));
+
+  el('kDelete').addEventListener('click', attempt(() => {
+    const row = pickedSaved();
+    if (!row) throw new Error('프리셋을 선택하세요');
+    saved = saved.filter((entry) => entry.idx !== row.idx);
+    bar.markDirty();
+    renderSaved('');
+  }));
+
+  /**
+   * 「이 프리셋으로 이동」 — `cam.applyPreset` 이 죽어 있으므로 **자세를 직접 만든다.**
+   * 위치를 먼저, PTZ 를 나중에 보낸다: 반대로 하면 이동 중의 자세가 잠깐 어긋난다.
+   */
+  el('kApply').addEventListener('click', guard(async () => {
+    const row = pickedSaved();
+    if (!row) throw new Error('프리셋을 선택하세요');
+    if (!confirm(`카메라 #${row.camId} 를 「${row.name}」 자세로 보냅니다.
+
+계속할까요?`)) return;
+    await ctx.rpc('cam.setPosition', { camId: row.camId, pos: row.pos });
+    await ctx.rpc('cam.setPTZ', { camId: row.camId, pan: row.pan, tilt: row.tilt, zoom: row.zoom });
+    await ctx.refreshCameras();
+    el('camList').value = String(row.camId);
+    showPosition();
+    await readPtz();
+    ctx.toast(`카메라 #${row.camId} 를 「${row.name}」 자세로 보냈습니다`, 'ok');
+  }));
 
   el('camList').addEventListener('change', guard(async () => {
     ptz = null;
@@ -181,8 +301,10 @@ export function createCamPanel(ctx) {
     },
     async onActivate() {
       applyRanges();
+      renderSaved();
       showPosition();
-      await readPtz();
+      // 시뮬레이터가 꺼져 있어도 파일 쪽은 뜬다 — PTZ 읽기 실패가 탭을 막지 않는다.
+      await readPtz().catch(ctx.reportError);
     },
     async onConnect() {
       applyRanges();

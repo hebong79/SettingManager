@@ -6,6 +6,7 @@ import { fileToRpc, rpcToFile, vec3 } from '../src/sim/simCoords.js';
 import {
   SAVE_KINDS, SimFileError, isSaveKind, listSimFiles,
   readCameraFile, readCarFile, readPresetFile,
+  serializeCameras, serializeCars, serializePresets,
 } from '../src/sim/simFiles.js';
 
 /**
@@ -175,5 +176,69 @@ describe('저장 폴더 밖으로 나가지 않는다', () => {
   it('한글·괄호가 든 정상 이름은 받는다', async () => {
     await write('preset', '001_주차장 (본관).json', { datas: [] });
     expect(await readPresetFile('001_주차장 (본관).json', root)).toEqual([]);
+  });
+});
+
+// --- 저장(직렬화) ------------------------------------------------------------------
+
+describe('파일 모양으로 되돌리기', () => {
+  it('프리셋 왕복이 원본과 같다 — 열었다 저장해도 배치가 안 틀어진다', async () => {
+    const source = {
+      datas: [{ idx: 1, presetName: 'Preset 1', faceCount: 12, offsetPos: { x: 1.059, y: 0, z: -19.371 }, faceRot: 0, groupRot: 0, xSize: 2.5, zSize: 5, dirType: 0, useBaseWidth: true, camIdx: 1 }],
+    };
+    await write('preset', 'p.json', source);
+    const round = serializePresets(await readPresetFile('p.json', root));
+    expect(round).toEqual(source);
+  });
+
+  it('차량 왕복이 원본과 같다', async () => {
+    const source = {
+      datas: [{ id: '0-13.50.46', type: 0, presetId: 1, slotId: 2, prefabId: 1, pos: { x: -8.167922, y: 0.0220000744, z: 14.76307 }, rotY: 180, isFront: true }],
+    };
+    await write('car', 'c.json', source);
+    expect(serializeCars(await readCarFile('c.json', root))).toEqual(source);
+  });
+
+  /**
+   * 카메라 파일은 `datas` 가 **두 겹**이다(바깥이 카메라, 안이 그 카메라의 프리셋들).
+   * 읽을 때 펼쳤으므로 저장할 때 `camId` 로 다시 묶어야 원본 모양이 된다.
+   */
+  it('카메라는 두 겹 datas 로 다시 묶인다', async () => {
+    await write('camera', 'k.json', {
+      datas: [
+        { datas: [
+          { idx: 0, sname: 'A', cam_id: 1, preset_id: 1, pos: { x: 1, y: 2, z: 3 }, rot: { x: 20, y: 10, z: 0 }, pan: 10, tilt: 20, zoom: 2 },
+          { idx: 1, sname: 'B', cam_id: 1, preset_id: 2, pos: { x: 1, y: 2, z: 3 }, rot: { x: 40, y: 30, z: 0 }, pan: 30, tilt: 40, zoom: 3 },
+        ] },
+        { datas: [
+          { idx: 0, sname: 'C', cam_id: 2, preset_id: 1, pos: { x: 4, y: 5, z: 6 }, rot: { x: 60, y: 50, z: 0 }, pan: 50, tilt: 60, zoom: 4 },
+        ] },
+      ],
+    });
+    const saved = serializeCameras(await readCameraFile('k.json', root)) as { datas: Array<{ datas: unknown[] }> };
+    expect(saved.datas).toHaveLength(2);
+    expect(saved.datas[0]!.datas).toHaveLength(2);
+    expect(saved.datas[1]!.datas).toHaveLength(1);
+  });
+
+  /**
+   * `rot` 는 파생값이다 — 실측에서 `rot = {x: tilt, y: pan, z: 0}` 이었다.
+   * 따로 들고 다니면 pan·tilt 를 고쳤을 때 한쪽만 바뀌어 파일이 스스로 모순된다.
+   */
+  it('rot 는 pan·tilt 에서 다시 만든다', async () => {
+    await write('camera', 'k.json', {
+      datas: [{ datas: [{ idx: 0, sname: 'A', cam_id: 1, preset_id: 1, pos: { x: 0, y: 0, z: 0 }, rot: { x: 999, y: 999, z: 999 }, pan: 47.1, tilt: 30.4, zoom: 2.4 }] }],
+    });
+    const saved = serializeCameras(await readCameraFile('k.json', root)) as { datas: Array<{ datas: Array<{ rot: unknown }> }> };
+    // 파일에 있던 엉뚱한 rot 를 그대로 옮기지 않는다.
+    expect(saved.datas[0]!.datas[0]!.rot).toEqual({ x: 30.4, y: 47.1, z: 0 });
+  });
+
+  it('ptzmin/max 가 없던 행에는 지어내지 않는다', async () => {
+    await write('camera', 'k.json', {
+      datas: [{ datas: [{ idx: 0, sname: 'A', cam_id: 1, preset_id: 1, pos: { x: 0, y: 0, z: 0 }, pan: 0, tilt: 0, zoom: 1 }] }],
+    });
+    const saved = serializeCameras(await readCameraFile('k.json', root)) as { datas: Array<{ datas: Array<Record<string, unknown>> }> };
+    expect(saved.datas[0]!.datas[0]).not.toHaveProperty('ptzmin');
   });
 });

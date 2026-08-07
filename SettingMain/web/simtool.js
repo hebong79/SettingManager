@@ -56,7 +56,7 @@ const ctx = {
   files: (kind) => api.simFiles(kind),
   file: (kind, name) => api.simFile(kind, name),
   parseFile: (kind, name, data) => api.simParseFile(kind, name, data),
-  serializePresets: (presets) => api.simSerializePresets(presets),
+  serializeFile: (kind, resultKey, rows) => api.simSerialize(kind, resultKey, rows),
   /** 지금 시뮬레이터가 아는 카메라 목록. 세 탭이 나눠 쓴다. */
   cameras: () => cameras,
   refreshCameras: loadCameras,
@@ -137,10 +137,18 @@ async function connect() {
  * 잠기는 것은 시뮬레이터를 실제로 두드리는 버튼들이다.
  */
 const OFFLINE_OK = new Set([
+  // 프리셋 메이커
   'spNew', 'spOpen', 'spOpenInput', 'spSave', 'spAdd', 'spUpdate', 'spDelete', 'spList',
   'spIdx', 'spName', 'spFaceCount', 'spCamIdx', 'spOffsetX', 'spOffsetY', 'spOffsetZ',
   'spGroupRot', 'spFaceRot', 'spXSize', 'spZSize', 'spDirType', 'spBaseWidth', 'spStep',
   'spModeMove', 'spModeRotate',
+  // 차량 배치
+  'carNew', 'carOpen', 'carOpenInput', 'carSave', 'carAdd', 'carUpdate', 'carDelete', 'carList',
+  'carPrefab', 'carType', 'carPresetId', 'carCount', 'carSpacing', 'carVertical',
+  'carX', 'carY', 'carSelId', 'carSelPreset', 'carSelFace', 'carSelRotY', 'carFront', 'carBack',
+  // 카메라 컨트롤 — 파일 쪽만
+  'kNew', 'kOpen', 'kOpenInput', 'kSave', 'kAdd', 'kUpdate', 'kDelete', 'kList',
+  'kName', 'kCamId', 'kPresetId', 'kPosX', 'kPosY', 'kPosZ', 'kPan', 'kTilt', 'kZoom',
 ]);
 
 function setPanelsEnabled(enabled) {

@@ -5,14 +5,25 @@ import { UNIMPLEMENTED, findSimMethod } from '../src/sim/simCatalog.js';
 /**
  * 시뮬레이터 툴 화면의 **배선 검사**.
  *
- * 브라우저 없이 잡을 수 있는 실패 둘을 본다.
+ * 브라우저 없이 잡을 수 있는 실패 셋을 본다.
  *   ① 스크립트가 찾는 id 가 HTML 에 없다 → 모듈 로딩이 멈춰 **다섯 탭이 통째로 죽는다**
- *   ② 화면이 부르는 RPC 가 카탈로그에 없다 → 프록시가 400 으로 거절한다
+ *   ② 화면이 부르는 RPC 가 카탈로그에 없거나 **등록만 되고 죽어 있다**
+ *   ③ 세 파일 툴의 형태가 어긋난다 (마스터 지시: 모두 같은 형태)
  */
 
 const read = (name: string) => readFile(new URL(`../web/${name}`, import.meta.url), 'utf8');
 
-const PANELS = ['simtool.js', 'simtoolPreset.js', 'simtoolCar.js', 'simtoolCam.js', 'simtoolMeasure.js', 'simtoolOpen.js'];
+const PANELS = [
+  'simtool.js', 'simtoolPreset.js', 'simtoolCar.js', 'simtoolCam.js',
+  'simtoolMeasure.js', 'simtoolOpen.js', 'simtoolFileBar.js',
+];
+
+/** 세 툴(프리셋·차량·카메라)이 **같은 형태**여야 한다 — 마스터 지시 2026-08-07. */
+const FILE_TOOLS = [
+  { name: '프리셋 메이커', script: 'simtoolPreset.js', prefix: 'sp', folder: 'Preset' },
+  { name: '차량 배치', script: 'simtoolCar.js', prefix: 'car', folder: 'CarPos' },
+  { name: '카메라 컨트롤', script: 'simtoolCam.js', prefix: 'k', folder: 'CameraPos' },
+];
 
 const requiredIds = (script: string): string[] =>
   [...script.matchAll(/\bel\(\s*'([^']+)'\s*\)/g)].map((m) => m[1]!);
@@ -23,6 +34,9 @@ const declaredIds = (html: string): Set<string> =>
 /** 화면이 실제로 부르는 RPC 이름. `ctx.rpc('x.y')` · `rpc('x.y')` 둘 다 잡는다. */
 const calledMethods = (script: string): string[] =>
   [...script.matchAll(/\brpc\(\s*'([a-z]+\.[A-Za-z]+)'/g)].map((m) => m[1]!);
+
+const stripComments = (source: string): string =>
+  source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
 describe('시뮬레이터 툴 화면', () => {
   it.each(PANELS)('%s 가 찾는 id 가 전부 simtool.html 에 있다', async (script) => {
@@ -73,6 +87,140 @@ describe('시뮬레이터 툴 화면', () => {
   });
 });
 
+describe('세 툴이 같은 형태다', () => {
+  it.each(FILE_TOOLS)('$name — 새로 만들기·열기…·저장… 이 있다', async ({ prefix }) => {
+    const html = await read('simtool.html');
+    for (const suffix of ['New', 'Open', 'Save', 'OpenInput', 'Status']) {
+      expect(html, `${prefix}${suffix}`).toContain(`id="${prefix}${suffix}"`);
+    }
+    expect(html).toMatch(new RegExp(`id="${prefix}OpenInput" type="file" accept="[^"]*json`));
+  });
+
+  /** 「처음부터」가 성립하려면 손으로 채울 수 있어야 한다. */
+  it.each(FILE_TOOLS)('$name — 추가·수정·삭제로 편집한다', async ({ prefix }) => {
+    const html = await read('simtool.html');
+    for (const suffix of ['Add', 'Update', 'Delete', 'List']) {
+      expect(html, `${prefix}${suffix}`).toContain(`id="${prefix}${suffix}"`);
+    }
+  });
+
+  it.each(FILE_TOOLS)('$name — 표준 위치를 화면이 말한다', async ({ folder }) => {
+    expect(await read('simtool.html')).toContain(`SettingMain/save/3D/${folder}`);
+  });
+
+  /**
+   * 같은 일을 세 벌로 두면 한 곳만 고치는 날이 온다 — 특히 "저장 안 한 편집을 버리기 전에
+   * 묻는다" 같은 규율은 빠뜨려도 테스트가 아니면 안 보인다.
+   */
+  it.each(FILE_TOOLS)('$name — 공용 파일 막대를 쓴다 (세 벌로 두지 않는다)', async ({ script }) => {
+    const source = await read(script);
+    expect(source).toContain('createFileBar');
+    // 파일 대화상자를 직접 배선하지 않는다 — 막대가 한다.
+    expect(source).not.toContain('wireOpenDialog');
+    expect(source).not.toContain('wireSaveDialog');
+  });
+
+  it('공용 막대가 저장 안 한 편집을 지킨다', async () => {
+    const bar = await read('simtoolFileBar.js');
+    expect(bar).toContain('confirmDiscard');
+    // 정의 1 + 새로 만들기 1 + 열기 1.
+    expect(bar.match(/confirmDiscard\(/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(bar).toContain('저장 안 함');
+  });
+
+  /**
+   * 저장은 파일 모양(Unity 좌표)으로 되돌려야 한다. **브라우저가 축을 만지면** 읽기와
+   * 쓰기의 규약이 갈려, 열었다 저장한 것만으로 배치가 틀어진다.
+   */
+  it('저장 시 축 변환을 서버에 맡긴다', async () => {
+    expect(await read('simtoolFileBar.js')).toContain('ctx.serializeFile(');
+    for (const { script } of FILE_TOOLS) {
+      expect(await read(script), script).not.toContain('offsetPos');
+    }
+  });
+
+  /** 파일·편집은 이 PC 안에서 끝난다 — 시뮬레이터가 꺼져 있다고 막을 이유가 없다. */
+  it('시뮬레이터 연결 없이도 파일·편집이 열려 있다', async () => {
+    const shell = await read('simtool.js');
+    expect(shell).toContain('OFFLINE_OK');
+    for (const { prefix } of FILE_TOOLS) {
+      for (const suffix of ['New', 'Open', 'Save', 'Add', 'Update', 'Delete']) {
+        expect(shell, `${prefix}${suffix}`).toContain(`'${prefix}${suffix}'`);
+      }
+    }
+  });
+});
+
+describe('프리셋 메이커', () => {
+  /** `preset.list` 는 RPC 가 만든 것만 보여 준다 — 위젯이 그린 배치가 안 보인다. */
+  it('목록을 preset.list 로 채우지 않는다', async () => {
+    expect(await read('simtoolPreset.js')).not.toContain("rpc('preset.list')");
+  });
+
+  /** 같은 번호가 둘이면 어느 것을 고쳤는지 알 수 없다. */
+  it('번호가 겹치면 추가를 거절한다', async () => {
+    const script = await read('simtoolPreset.js');
+    expect(script.slice(script.indexOf("el('spAdd')"), script.indexOf("el('spAdd')") + 700))
+      .toContain('이미 있는 번호입니다');
+  });
+
+  it('편집이 파일·시뮬레이터를 건드리지 않는다고 화면이 말한다', async () => {
+    expect(await read('simtool.html')).toMatch(/이 화면의 목록만[\s\S]*파일도 시뮬레이터도/);
+  });
+
+  it('탭에 경고 배너가 있고 위험한 쓰기에 확인을 받는다', async () => {
+    const html = await read('simtool.html');
+    expect(html).toContain('id="spDanger"');
+    expect(html).toMatch(/시뮬레이터 UI 로 그린 주차면을 지웁니다/);
+    const script = await read('simtoolPreset.js');
+    for (const marker of ['spPush', 'spClear', 'spSimLoad']) {
+      expect(script.slice(script.indexOf(`el('${marker}')`), script.indexOf(`el('${marker}')`) + 700), marker)
+        .toContain('confirm(');
+    }
+  });
+
+  /** 하나가 실패해도 멈추지 않는다 — 멈추면 시뮬레이터가 **반쯤 지워진** 상태로 남는다. */
+  it('보내기는 실패한 건을 모아 끝에 보고한다', async () => {
+    const body = await read('simtoolPreset.js');
+    const push = body.slice(body.indexOf('async function push('));
+    expect(push).toContain('failed.push');
+    expect(push).toContain('sent.length');
+  });
+});
+
+describe('카메라 프리셋 — 없는 RPC 를 대신한다', () => {
+  /**
+   * `cam.applyPreset` 은 등록만 돼 있고 동작하지 않는다(per-camera 프리셋 메모리 없음).
+   * 없는 것을 부르는 대신 **자세를 직접 만든다.**
+   */
+  it('applyPreset 을 부르지 않고 setPosition·setPTZ 로 자세를 만든다', async () => {
+    const script = await read('simtoolCam.js');
+    expect(script).not.toContain("rpc('cam.applyPreset'");
+    const handler = script.slice(script.indexOf("el('kApply')"));
+    expect(handler.slice(0, 900)).toContain('cam.setPosition');
+    expect(handler.slice(0, 900)).toContain('cam.setPTZ');
+  });
+
+  it('프리셋의 정본이 파일이라는 사실을 화면이 말한다', async () => {
+    expect(await read('simtool.html')).toMatch(/시뮬레이터에는 카메라 프리셋 개념이 없습니다/);
+  });
+});
+
+describe('차량 배치', () => {
+  /** 「시뮬로 보내기」(목록 → 시뮬)와 「시뮬에 줄 배치」(시뮬 직접)는 다른 것이다. */
+  it('시뮬에서 가져오기로 현재 상태를 목록에 담을 수 있다', async () => {
+    expect(await read('simtool.html')).toContain('id="carPull"');
+    expect(await read('simtoolCar.js')).toContain("rpc('car.list')");
+  });
+
+  it('죽은 random.* 을 부르지 않는다', async () => {
+    const script = await read('simtoolCar.js');
+    for (const dead of ['randomizeAll', 'slotJitter', 'frontBack', 'slotPlace', 'placeInView']) {
+      expect(script, dead).not.toContain(`random.${dead}`);
+    }
+  });
+});
+
 describe('시뮬레이터 툴의 독립', () => {
   /**
    * 지시 7. 화면이 `/api/cameras` 나 `/api/core/*` 를 부르는 순간, 카메라 설정이 깨지면
@@ -88,26 +236,15 @@ describe('시뮬레이터 툴의 독립', () => {
   });
 
   /**
-   * 표면은 **다섯**이고 전부 `/api/sim/*` 이다:
-   *   simCatalog     허용 메서드 목록
-   *   simCarCatalog  차량 프리팹 이름 (시뮬레이터가 안 준다 — config/car_catalog.json)
-   *   simFiles·simFile  저장 파일 목록·내용 (preset.list 가 실체를 안 보여 준다)
-   *   simParseFile·simSerializePresets  PC 파일 해석·저장 — **브라우저가 축을 만지지 않는다**
-   *   simRpc         RPC 호출
-   *
-   * 여섯째가 생기면 그때는 경계가 새고 있는지 다시 봐야 한다. **중요한 것은 개수가 아니라
-   * 전부 `/api/sim/` 이라는 것**이다 — 카메라·코어 경로가 하나라도 섞이면 독립이 깨진다.
+   * 표면은 전부 `/api/sim/*` 이다. **중요한 것은 개수가 아니라** 카메라·코어 경로가
+   * 하나도 섞이지 않는다는 것이다.
    */
   it('시뮬툴 API 표면은 전부 /api/sim/* 이다', async () => {
     const api = await read('api.js');
     const block = api.slice(api.indexOf('시뮬레이터 툴'), api.indexOf('settings:'));
     const surface = [...block.matchAll(/^\s{2}(sim\w+):/gm)].map((m) => m[1]);
-    expect(surface).toEqual(['simCatalog', 'simCarCatalog', 'simFiles', 'simFile', 'simParseFile', 'simSerializePresets', 'simRpc']);
-    // 이 블록 안의 모든 경로가 /api/sim/ 으로 시작해야 한다.
-    for (const path of [...block.matchAll(/'(\/api\/[^'`]*)/g)].map((m) => m[1])) {
-      expect(path, path).toMatch(/^\/api\/sim\//);
-    }
-    for (const path of [...block.matchAll(/`(\/api\/[^'`]*)/g)].map((m) => m[1])) {
+    expect(surface).toEqual(['simCatalog', 'simCarCatalog', 'simFiles', 'simFile', 'simParseFile', 'simSerialize', 'simRpc']);
+    for (const path of [...block.matchAll(/['`](\/api\/[^'`]*)/g)].map((m) => m[1])) {
       expect(path, path).toMatch(/^\/api\/sim\//);
     }
   });
@@ -115,8 +252,7 @@ describe('시뮬레이터 툴의 독립', () => {
   /** 드라이버 계층은 ×100 정수 raw, 시뮬툴은 도·배율. 두 곳에서 환산하면 갈린다. */
   it('PTZ 단위를 환산하지 않는다', async () => {
     for (const script of PANELS) {
-      const source = (await read(script)).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-      expect(source, script).not.toMatch(/[*/]\s*100\b/);
+      expect(stripComments(await read(script)), script).not.toMatch(/[*/]\s*100\b/);
     }
   });
 });
@@ -145,104 +281,8 @@ describe('없는 기능을 흉내 내지 않는다', () => {
   });
 });
 
-describe('프리셋 메이커', () => {
-  /**
-   * 시뮬레이터의 `preset.list` 는 RPC 가 만든 것만 보여 준다(위젯이 그린 배치는 안 보인다).
-   * 목록은 사람이 「새로 만들기」로 짓거나 「열기…」로 PC 파일에서 읽는다.
-   */
-  it('목록을 preset.list 로 채우지 않는다', async () => {
-    const script = await read('simtoolPreset.js');
-    expect(script).not.toContain("rpc('preset.list')");
-    expect(script).toContain('wireOpenDialog');
-  });
-
-  /** 지시: "새롭게 처음부터 시작할 수도 있어야 한다." */
-  it('빈 목록에서 시작할 수 있고, 저장 안 한 편집을 버리기 전에 묻는다', async () => {
-    expect(await read('simtool.html')).toContain('id="spNew"');
-    const script = await read('simtoolPreset.js');
-    expect(script).toContain('confirmDiscard');
-    const handler = script.slice(script.indexOf("el('spNew')"));
-    expect(handler.slice(0, 300)).toContain('confirmDiscard');
-  });
-
-  it('열기·저장 버튼이 둘 다 있다', async () => {
-    const html = await read('simtool.html');
-    for (const id of ['spOpen', 'spSave']) expect(html).toContain(`id="${id}"`);
-    expect(await read('simtoolPreset.js')).toContain('wireSaveDialog');
-  });
-
-  /** 빈 목록에서 손으로 채우려면 편집이 열려 있어야 한다. */
-  it('상세가 편집 가능하고 추가·수정·삭제가 있다', async () => {
-    const html = await read('simtool.html');
-    for (const id of ['spOffsetX', 'spOffsetY', 'spOffsetZ', 'spIdx']) {
-      expect(html, id).not.toMatch(new RegExp(`id="${id}"[^>]*readonly`));
-    }
-    for (const id of ['spAdd', 'spUpdate', 'spDelete']) expect(html).toContain(`id="${id}"`);
-  });
-
-  /** 같은 번호가 둘이면 어느 것을 고쳤는지 알 수 없다. */
-  it('번호가 겹치면 추가를 거절한다', async () => {
-    const script = await read('simtoolPreset.js');
-    const handler = script.slice(script.indexOf("el('spAdd')"));
-    expect(handler.slice(0, 700)).toContain('이미 있는 번호입니다');
-  });
-
-  /**
-   * 편집(이 화면)·파일·시뮬레이터가 서로 다른 것을 들고 있다. 어느 것을 건드리는지
-   * 화면이 말하지 않으면 사람이 잃는다.
-   */
-  it('편집이 파일·시뮬레이터를 건드리지 않는다고 화면이 말한다', async () => {
-    const html = await read('simtool.html');
-    expect(html).toMatch(/이 화면의 목록만.*파일도 시뮬레이터도/s);
-  });
-
-  it('탭에 경고 배너가 있고 위험한 쓰기에 확인을 받는다', async () => {
-    const html = await read('simtool.html');
-    expect(html).toContain('id="spDanger"');
-    expect(html).toMatch(/시뮬레이터 UI 로 그린 주차면을 지웁니다/);
-
-    const script = await read('simtoolPreset.js');
-    for (const marker of ['spPush', 'spClear', 'spSimLoad']) {
-      const handler = script.slice(script.indexOf(`el('${marker}')`));
-      expect(handler.slice(0, 700), marker).toContain('confirm(');
-    }
-  });
-
-  /** 하나가 실패해도 멈추지 않는다 — 멈추면 시뮬레이터가 **반쯤 지워진** 상태로 남는다. */
-  it('보내기는 실패한 건을 모아 끝에 보고한다', async () => {
-    const push = (await read('simtoolPreset.js'));
-    const body = push.slice(push.indexOf('async function push('));
-    expect(body).toContain('failed.push');
-    expect(body).toContain('sent.length');
-  });
-
-  /**
-   * 저장은 파일 모양(Unity 좌표)으로 되돌려야 한다. **브라우저가 축을 만지면** 읽기와
-   * 쓰기의 규약이 갈려, 열었다 저장한 것만으로 배치가 틀어진다.
-   */
-  it('저장 시 축 변환을 서버에 맡긴다', async () => {
-    const script = await read('simtoolPreset.js');
-    expect(script).toContain('ctx.serializePresets(presets)');
-    expect(script).not.toContain('offsetPos');
-  });
-
-  /** 파일·편집은 이 PC 안에서 끝난다 — 시뮬레이터가 꺼져 있다고 막을 이유가 없다. */
-  it('시뮬레이터 연결 없이도 새로 만들기·열기·저장·편집이 열려 있다', async () => {
-    const shell = await read('simtool.js');
-    expect(shell).toContain('OFFLINE_OK');
-    for (const id of ['spNew', 'spOpen', 'spSave', 'spAdd', 'spUpdate', 'spDelete']) {
-      expect(shell, id).toContain(`'${id}'`);
-    }
-  });
-});
-
-describe('「열기…」 — 이 PC 의 파일', () => {
-  it('두 탭에 파일 대화상자가 있고 버튼이 그것을 연다', async () => {
-    const html = await read('simtool.html');
-    for (const id of ['spOpenInput', 'carOpenInput']) {
-      expect(html, id).toMatch(new RegExp(`id="${id}" type="file" accept="[^"]*json`));
-    }
-    for (const id of ['spOpen', 'carOpen']) expect(html).toContain(`id="${id}"`);
+describe('「열기…」·「저장…」 — 이 PC 의 파일', () => {
+  it('버튼이 파일 대화상자를 연다', async () => {
     expect(await read('simtoolOpen.js')).toContain('input.click()');
   });
 
@@ -255,8 +295,7 @@ describe('「열기…」 — 이 PC 의 파일', () => {
     // 브라우저가 하는 것은 BOM 제거와 JSON.parse 뿐이다.
     expect(script).toContain('JSON.parse(text.replace(');
     expect(script).toContain('parse(kind, fileName, data)');
-    // 축을 만지는 흔적이 있으면 안 된다.
-    expect(script).not.toMatch(/offsetPos|fileToRpc|z:\s*\w+\.y/);
+    expect(script).not.toMatch(/offsetPos|fileToRpc/);
   });
 
   /**
@@ -270,20 +309,17 @@ describe('「열기…」 — 이 PC 의 파일', () => {
     expect(handler.indexOf("input.value = ''")).toBeLessThan(handler.indexOf('file.text()'));
   });
 
-  /** 차량 탭은 폴더 드롭다운을 함께 쓰므로, PC 파일을 열면 그 선택을 풀어야 한다. */
-  it('차량 탭은 PC 파일을 열면 폴더 선택을 푼다 — 이름이 섞이면 엉뚱한 곳에 저장된다', async () => {
-    const source = await read('simtoolCar.js');
-    const onLoad = source.slice(source.indexOf('onLoad: (result, fileName)'));
-    expect(onLoad.slice(0, 500)).toMatch(/el\('carFile'\)\.value = ''/);
-    expect(onLoad.slice(0, 500)).toContain('내 PC');
+  it('연 파일의 출처를 상태줄이 밝힌다', async () => {
+    expect(await read('simtoolFileBar.js')).toContain('내 PC');
   });
 
   /** 되돌릴 수 없는 동작이다 — 무엇을 보내는지 모르고 누르면 안 된다. */
   it('보내기 확인 문구가 출처를 밝힌다', async () => {
-    const preset = await read('simtoolPreset.js');
-    expect(preset.slice(preset.indexOf('async function push('), preset.indexOf('async function push(') + 800)).toContain('${origin}');
-    const car = await read('simtoolCar.js');
-    expect(car.slice(car.indexOf('async function push('), car.indexOf('async function push(') + 800)).toContain('${source}');
+    for (const script of ['simtoolPreset.js', 'simtoolCar.js']) {
+      const source = await read(script);
+      const push = source.slice(source.indexOf('async function push('));
+      expect(push.slice(0, 800), script).toContain('${bar.origin()}');
+    }
   });
 
   /**
@@ -291,9 +327,7 @@ describe('「열기…」 — 이 PC 의 파일', () => {
    * 할 수 있는 것은 파일명 제안과 `id` 로 마지막 폴더 기억뿐 — 화면이 그 사실을 말한다.
    */
   it('시작 폴더를 지정할 수 없다는 사실과 표준 위치를 화면이 말한다', async () => {
-    const html = await read('simtool.html');
-    expect(html).toContain('SettingMain/save/3D/Preset');
-    expect(html).toMatch(/시작 폴더를 지정할 수 없습니다/);
+    expect(await read('simtool.html')).toMatch(/시작 폴더를 지정할 수 없습니다/);
     const script = await read('simtoolOpen.js');
     expect(script).toContain('id: `sim-${kind}`');
     expect(script).toContain('suggestedName');

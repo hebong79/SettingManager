@@ -273,6 +273,66 @@ export function serializePresets(presets: PresetGroup[]): { datas: unknown[] } {
   };
 }
 
+export function serializeCars(cars: CarPlacement[]): { datas: unknown[] } {
+  return {
+    datas: cars.map((car) => ({
+      id: car.id,
+      type: car.type,
+      presetId: car.presetId,
+      slotId: car.slotId,
+      prefabId: car.prefabId,
+      pos: rpcToFile(car.pos),
+      rotY: car.rotY,
+      isFront: car.isFront,
+    })),
+  };
+}
+
+/**
+ * 카메라 파일은 **`datas` 가 두 겹**이다 — 바깥이 카메라, 안이 그 카메라의 PTZ 프리셋들.
+ * 읽을 때 펼쳤으므로 저장할 때 `camId` 로 다시 묶는다.
+ *
+ * **`rot` 는 저장할 때 다시 만든다.** 실측에서 `rot = {x: tilt, y: pan, z: 0}` 이었다
+ * (`rot{x:30.4, y:47.1, z:0}` · `tilt:30.4` · `pan:47.1`). 파생값을 따로 들고 다니면
+ * pan·tilt 를 고쳤을 때 한쪽만 바뀌어 파일이 스스로 모순된다.
+ */
+export function serializeCameras(cameras: CameraPlacement[]): { datas: unknown[] } {
+  const byCamera = new Map<number, CameraPlacement[]>();
+  for (const camera of cameras) {
+    const bucket = byCamera.get(camera.camId);
+    if (bucket) bucket.push(camera);
+    else byCamera.set(camera.camId, [camera]);
+  }
+  return {
+    datas: [...byCamera.values()].map((rows) => ({
+      datas: rows.map((row) => ({
+        idx: row.idx,
+        sname: row.name,
+        cam_id: row.camId,
+        preset_id: row.presetId,
+        pos: rpcToFile(row.pos),
+        rot: { x: row.tilt, y: row.pan, z: 0 },
+        pan: row.pan,
+        tilt: row.tilt,
+        zoom: row.zoom,
+        ...(row.limits
+          ? {
+            ptzmin: { p: row.limits.pan[0], t: row.limits.tilt[0], z: row.limits.zoom[0] },
+            ptzmax: { p: row.limits.pan[1], t: row.limits.tilt[1], z: row.limits.zoom[1] },
+          }
+          : {}),
+      })),
+    })),
+  };
+}
+
+/** 종류 하나에 직렬화기 하나. 라우트가 `if (kind === …)` 를 세 번 쓰지 않게 한다. */
+export const SERIALIZERS = {
+  preset: serializePresets,
+  car: serializeCars,
+  camera: serializeCameras,
+} as const satisfies Record<SaveKind, (rows: never[]) => { datas: unknown[] }>;
+
 /** 종류 하나에 해석기 하나. 라우트가 `if (kind === …)` 를 세 번 쓰지 않게 한다. */
 export const PARSERS = {
   preset: parsePresets,
