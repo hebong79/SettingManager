@@ -25,6 +25,8 @@ import { presetRoutes, slotRoutes } from './routes/presetRoutes.js';
 import { ptzRoutes } from './routes/ptzRoutes.js';
 import { createRouteContext, type RouteHandler, type ServerDeps } from './routes/routeContext.js';
 import { settingsRoutes } from './routes/settingsRoutes.js';
+import { simRoutes } from './routes/simRoutes.js';
+import { SimRpcError } from '../sim/simRpcClient.js';
 import { serveStatic } from './staticFiles.js';
 
 export type { ServerDeps } from './routes/routeContext.js';
@@ -59,6 +61,10 @@ export function createServer(deps: ServerDeps): Server {
   /** 순서가 계약이다 — 앞선 라우트가 false 를 돌려줘야 다음이 본다. */
   const handlers: RouteHandler[] = [
     healthRoutes,
+    // 시뮬레이터 툴은 `/api/sim/` 전용이라 어느 자리에 두어도 충돌하지 않는다.
+    // 앞쪽에 두는 이유는 **이 경로가 카메라·DB 를 만지지 않는다**는 것을 배치로 드러내기
+    // 위해서다 — 뒤에 두면 앞선 라우트들이 드라이버를 조립하려 시도한 뒤에야 닿는다.
+    simRoutes,
     coreRoutes,
     createProfileRoutes(profiles),
     settingsRoutes,
@@ -112,6 +118,7 @@ function fail(res: ServerResponse, error: unknown): void {
   if (error instanceof DetectorUnsupportedError) return sendError(res, error.statusCode, error.message);
   if (error instanceof DetectorError) return sendError(res, error.statusCode, error.message);
   if (error instanceof DatabaseError) return sendError(res, error.statusCode, error.message);
+  if (error instanceof SimRpcError) return sendError(res, error.statusCode, error.message);
   if (error instanceof CameraDriverError) return sendError(res, error.statusCode, error.message);
   if (error instanceof ConfigError) return sendError(res, error.statusCode, error.message);
   sendError(res, 500, error instanceof Error ? error.message : String(error));

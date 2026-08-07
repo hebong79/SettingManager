@@ -193,6 +193,22 @@ export const ROUTE_CATALOG: readonly RouteCatalogEntry[] = [
   // --- 주차면·영상 ---------------------------------------------------------
   { method: 'GET', path: '/api/slots', title: '주차면 목록', mutating: false, movesCamera: false, notes: 'source 가 simulator 인지 local 인지 함께 온다.' },
   { method: 'GET', path: '/api/snapshot', title: '스냅샷 1장 (image/jpeg)', mutating: false, movesCamera: false, notes: 'MCP 로는 바이너리를 싣지 않는다 — 크기만 답한다.' },
+
+  // --- 시뮬레이터 툴 (언리얼 Park3D RPC 경유) --------------------------------
+  //
+  // **카메라·DB 와 무관한 평면이다.** 여기서 움직이는 것은 시뮬레이터 안의 카메라이고,
+  // 이 서비스가 관리하는 실기기가 아니다.
+  {
+    method: 'GET', path: '/api/sim/catalog', title: '시뮬레이터가 허용하는 메서드 목록', mutating: false, movesCamera: false,
+    notes: '이 목록 밖 메서드는 프록시가 400 으로 거절한다. 시뮬레이터 자신이 무엇을 갖고 있는지는 system.catalog 로 따로 묻는다.',
+  },
+  {
+    // **한 경로에 80가지 행위가 들어 있다.** 실제 행위는 본문의 `method` 가 정하므로
+    // 이 항목 하나로는 안전한 것과 위험한 것을 가를 수 없다. 그래서 가장 위험한 쪽에
+    // 맞춰 표시한다 — `cam.setPTZ` 처럼 카메라를 실제로 돌리는 것이 목록에 있다.
+    method: 'POST', path: '/api/sim/rpc', title: '시뮬레이터 RPC 호출', mutating: true, movesCamera: true,
+    notes: '{ method, params } — 실제 행위는 method 가 정한다. 읽기(cam.list·map.get 등)도 이 경로로 가지만, 목록에 카메라를 움직이는 것이 섞여 있어 보수적으로 표시한다. 허용 목록은 GET /api/sim/catalog.',
+  },
 ];
 
 /** 경로 템플릿을 실제 경로에 맞춰 본다. `:이름` 은 슬래시 없는 한 조각과 맞는다. */

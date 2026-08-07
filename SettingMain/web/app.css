@@ -369,3 +369,25 @@ table.grid tbody tr.bad td { color: var(--warn); }
 /* 영상은 넓게, 나머지는 그대로. 카메라 제어 화면과 같은 기조다. */
 .commissioning-view .viewport { aspect-ratio: 16 / 9; }
 progress { width: 220px; height: 10px; }
+
+/* --- 시뮬레이터 툴: 라벨 · 최솟값 · 슬라이더 · 최댓값 · 현재값 한 줄 ---------
+   Min/Max 는 화면 전용 범위다(시뮬레이터에 저장되지 않는다) — 그래서 슬라이더 양옆에
+   붙여 "이 슬라이더가 다룰 구간"임이 눈에 보이게 둔다. */
+.slider-row {
+  display: grid;
+  grid-template-columns: 108px 68px minmax(0, 1fr) 68px 64px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.slider-row label { font-size: 12px; color: var(--muted); }
+.slider-row input[type="number"] { font-size: 11px; padding: 3px 5px; }
+.slider-row input[type="range"] { width: 100%; accent-color: var(--accent); }
+.slider-row output { font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 1100px) {
+  .slider-row { grid-template-columns: 96px 60px minmax(0, 1fr) 60px 56px; }
+}
+
+/* 차량·프리셋 목록은 여러 줄을 한눈에 봐야 한다 — 드롭다운이 아니라 리스트박스다. */
+#carList, #spList { width: 100%; font-family: inherit; font-size: 12px; }

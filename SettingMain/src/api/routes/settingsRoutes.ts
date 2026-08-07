@@ -19,6 +19,8 @@ export const settingsRoutes: RouteHandler = async (ctx) => {
     if (method === 'GET') {
       sendJson(res, 200, {
         simulator: config.simulator,
+        // 시뮬레이터 툴의 RPC 주소. `simulator.baseUrl`(backend-core)과 **다른 것**이다.
+        simTool: config.simTool,
         core: config.core,
         streaming: config.streaming,
         activeCameraId: config.activeCameraId,
@@ -32,6 +34,7 @@ export const settingsRoutes: RouteHandler = async (ctx) => {
       sendJson(res, 200, {
         saved: true,
         simulator: next.simulator,
+        simTool: next.simTool,
         core: next.core,
         activeCameraId: next.activeCameraId,
         cameras: next.cameras.map(toPublicCamera),

@@ -11,6 +11,7 @@ import type {
   Object3dConfig,
   PublicCamera,
   SettingsPatch,
+  SimToolConfig,
   StreamingConfig,
 } from './types.js';
 
@@ -150,9 +151,24 @@ export function normalizeConfig(raw: unknown): AppConfig {
     core,
     detectors: normalizeDetectors(r.detectors),
     object3d: normalizeObject3d(r.object3d),
+    simTool: normalizeSimTool(r.simTool),
     // 가리키는 기기가 실제로 있는지는 카메라를 채운 **뒤에** 판정한다(ConfigStore.pickActive).
     activeCameraId: str(r.activeCameraId),
     cameras,
+  };
+}
+
+/**
+ * 언리얼 Park3D RPC 주소. **비면 시뮬레이터 툴이 통째로 꺼진다.**
+ *
+ * 기본 주소를 지어 넣지 않는다 — 아무 데도 없는 곳으로 나간 요청의 타임아웃보다
+ * "설정되지 않았습니다" 라는 즉답이 훨씬 빨리 원인을 알려 준다. 검출기와 같은 판단이다.
+ */
+export function normalizeSimTool(raw: unknown): SimToolConfig {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  return {
+    rpcUrl: stripTrailingSlash(str(r.rpcUrl)),
+    timeoutMs: int(r.timeoutMs, 10_000, 500, 120_000),
   };
 }
 
@@ -243,6 +259,9 @@ export function mergeSettings(current: AppConfig, patch: SettingsPatch): AppConf
     ...current,
     core: patch.core ? normalizeCore({ ...current.core, ...patch.core }) : current.core,
     simulator: { baseUrl: patch.simulator?.baseUrl !== undefined ? stripTrailingSlash(str(patch.simulator.baseUrl)) : current.simulator.baseUrl },
+    simTool: patch.simTool?.rpcUrl !== undefined
+      ? { ...current.simTool, rpcUrl: stripTrailingSlash(str(patch.simTool.rpcUrl)) }
+      : current.simTool,
   };
 
   if (patch.activeCameraId !== undefined) {

@@ -112,6 +112,12 @@ export const api = {
   vehicleBoxDetect: (cameraId) => request('POST', '/api/core/vehicle-box', { cameraId }),
   vehicleBoxHistory: (cameraId, limit = 20) => request('GET', `/api/core/vehicle-box/history?cameraId=${encodeURIComponent(cameraId)}&limit=${limit}`),
 
+  // --- 시뮬레이터 툴 -----------------------------------------------------
+  // **카메라·DB 를 전혀 쓰지 않는다.** 이 둘이 시뮬레이터 툴의 표면 전부다 —
+  // 늘어나면 독립 경계가 새고 있다는 뜻이다.
+  simCatalog: () => request('GET', '/api/sim/catalog'),
+  simRpc: (method, params = {}) => request('POST', '/api/sim/rpc', { method, params }),
+
   settings: () => request('GET', '/api/settings'),
   saveSettings: (patch) => request('PUT', '/api/settings', patch),
 };
