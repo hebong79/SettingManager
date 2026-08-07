@@ -17,8 +17,31 @@
         <div class="body">
           <div class="row">
             <div class="field"><label for="cameraSelect">카메라</label><select id="cameraSelect"></select></div>
+            <button id="activateCamera" type="button">활성으로 선택</button>
           </div>
           <p class="capability-note" id="cameraNote" aria-live="polite"></p>
+        </div>
+      </section>
+
+      <section class="card commissioning-view">
+        <h2>카메라 뷰 <span class="tag" id="streamTag" aria-live="polite">정지</span></h2>
+        <div class="viewport" id="viewport" aria-label="캘리브레이션 대상 카메라 영상">
+          <img id="stream" alt="선택한 카메라의 영상">
+          <span class="stream-center-cross" aria-hidden="true"></span>
+          <div class="placeholder" id="streamPlaceholder">영상은 자동으로 시작하지 않습니다. 「시작」 또는 「스냅샷 1장」을 누르세요.</div>
+        </div>
+        <div class="body">
+          <div class="row">
+            <button id="streamStart" class="primary" type="button" aria-controls="stream">시작</button>
+            <button id="streamStop" type="button" aria-controls="stream">정지</button>
+            <button id="snapshotOnce" type="button" aria-controls="stream">스냅샷 1장</button>
+          </div>
+          <p class="hint">
+            스윕이 도는 동안 카메라가 실제로 어디를 보고 있는지 확인하는 용도입니다.
+            가운데 십자가 클릭이 <strong>중앙으로 와야 할 자리</strong>입니다.
+            <strong>이 화면에서는 클릭 센터링을 하지 않습니다</strong> — 스윕이 카메라를 점유하고 있는 동안
+            사람이 끼어들면 그 샘플이 조용히 오염됩니다.
+          </p>
         </div>
       </section>
 

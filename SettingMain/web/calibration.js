@@ -1,4 +1,5 @@
 import { api, reportError, toast } from './api.js';
+import { createStreamView } from './streamView.js';
 
 /**
  * 캘리브레이션 화면.
@@ -14,6 +15,21 @@ import { api, reportError, toast } from './api.js';
 const el = (id) => document.getElementById(id);
 let cameraId = '';
 let timer = null;
+
+/**
+ * 카메라 뷰. **클릭 센터링을 붙이지 않는다** — 스윕이 카메라를 점유하고 있는 동안 사람이
+ * 조준을 끼워 넣으면 그 샘플이 조용히 오염되고, 오염된 줄 모르는 채 발행까지 간다.
+ */
+const view = createStreamView({
+  image: el('stream'),
+  placeholder: el('streamPlaceholder'),
+  tag: el('streamTag'),
+  startButton: el('streamStart'),
+  stopButton: el('streamStop'),
+  snapshotButton: el('snapshotOnce'),
+  cameraId: () => cameraId,
+  onError: (message) => toast(message, 'err'),
+});
 
 async function loadCameras() {
   const { cameras, activeCameraId } = await api.cameras();
@@ -175,11 +191,20 @@ const escape = (text) => String(text).replace(/[&<>]/g, (c) => ({ '&': '&amp;', 
 
 async function selectCamera() {
   cameraId = el('cameraSelect').value;
+  // 기기를 바꾸면 **영상을 먼저 끊는다** — 안 끊으면 옛 카메라의 MJPEG 가 계속 흐르면서
+  // 아래 패널만 새 카메라의 것으로 바뀌어, 화면 전체가 조용히 거짓말을 한다.
+  view.stop();
+  view.setControls();
   if (timer) { clearInterval(timer); timer = null; }
   await Promise.all([loadCapability(), poll(), loadProfile()]);
 }
 
 el('cameraSelect').addEventListener('change', () => selectCamera().catch(reportError));
+el('activateCamera').addEventListener('click', () => {
+  api.setActiveCamera(cameraId)
+    .then(() => toast('활성 카메라를 변경했습니다', 'ok'))
+    .catch(reportError);
+});
 el('start').addEventListener('click', start);
 el('stop').addEventListener('click', () => api.calibrationStop(cameraId).then(poll).catch(reportError));
 el('mint').addEventListener('click', () => mint(false));

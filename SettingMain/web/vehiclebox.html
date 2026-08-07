@@ -24,14 +24,24 @@
         </div>
       </section>
 
-      <section class="card">
-        <h2>오버레이</h2>
+      <section class="card commissioning-view">
+        <h2>카메라 뷰 <span class="tag" id="streamTag" aria-live="polite">정지</span></h2>
         <div class="viewport" id="viewport">
           <img id="frame" alt="검출 대상 프레임">
           <canvas id="overlay"></canvas>
-          <div class="placeholder" id="placeholder">「검출」을 누르면 지금 프레임과 큐보이드를 그립니다.</div>
+          <div class="placeholder" id="placeholder">영상은 자동으로 시작하지 않습니다. 「시작」으로 스트리밍하거나, 「검출」로 한 장을 잡으세요.</div>
         </div>
         <div class="body">
+          <div class="row">
+            <button id="streamStart" class="primary" type="button" aria-controls="frame">시작</button>
+            <button id="streamStop" type="button" aria-controls="frame">정지</button>
+            <button id="snapshotOnce" type="button" aria-controls="frame">스냅샷 1장</button>
+          </div>
+          <p class="warn" id="staleNotice" hidden>
+            <strong>영상이 흐르는 동안에는 선분을 그리지 않습니다.</strong>
+            큐보이드는 <em>검출한 그 한 장</em>의 것이라, 움직이는 화면 위에 얹으면 차량에서 어긋난 채
+            맞는 것처럼 보입니다. 「검출」을 누르면 그 프레임에서 멈춰 그립니다.
+          </p>
           <p class="hint">
             선분은 <strong>사이드카가 이미지 좌표로 준 것</strong>(<code>segments</code>)을 그대로 잇습니다 — 우리가 투영하지 않습니다.
             큐보이드는 12모서리지만 <strong>항상 12개가 오지는 않습니다</strong>: 화면 밖으로 크게 날아간 모서리는 개별적으로 버려집니다.
