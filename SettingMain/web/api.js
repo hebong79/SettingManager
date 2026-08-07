@@ -117,6 +117,9 @@ export const api = {
   // 늘어나면 독립 경계가 새고 있다는 뜻이다.
   simCatalog: () => request('GET', '/api/sim/catalog'),
   simCarCatalog: () => request('GET', '/api/sim/car-catalog'),
+  /** 저장 파일 목록·내용. kind = preset | car | camera. 좌표는 서버가 RPC 계로 바꿔 준다. */
+  simFiles: (kind) => request('GET', `/api/sim/files/${kind}`),
+  simFile: (kind, name) => request('GET', `/api/sim/files/${kind}/${encodeURIComponent(name)}`),
   simRpc: (method, params = {}) => request('POST', '/api/sim/rpc', { method, params }),
 
   settings: () => request('GET', '/api/settings'),

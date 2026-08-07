@@ -88,15 +88,27 @@ describe('시뮬레이터 툴의 독립', () => {
   });
 
   /**
-   * 표면이 **셋**이다: 허용 목록 · RPC 호출 · 차량 프리팹 이름.
-   * 셋째가 있는 이유는 시뮬레이터가 차종 이름을 주지 않아서다(`config/car_catalog.json`).
-   * 넷째가 생기면 그때는 경계가 새고 있는지 다시 봐야 한다.
+   * 표면은 **다섯**이고 전부 `/api/sim/*` 이다:
+   *   simCatalog     허용 메서드 목록
+   *   simCarCatalog  차량 프리팹 이름 (시뮬레이터가 안 준다 — config/car_catalog.json)
+   *   simFiles·simFile  저장 파일 목록·내용 (preset.list 가 실체를 안 보여 준다)
+   *   simRpc         RPC 호출
+   *
+   * 여섯째가 생기면 그때는 경계가 새고 있는지 다시 봐야 한다. **중요한 것은 개수가 아니라
+   * 전부 `/api/sim/` 이라는 것**이다 — 카메라·코어 경로가 하나라도 섞이면 독립이 깨진다.
    */
-  it('시뮬툴 API 표면은 셋뿐이다 — 늘어나면 경계가 새는 것이다', async () => {
+  it('시뮬툴 API 표면은 전부 /api/sim/* 이다', async () => {
     const api = await read('api.js');
     const block = api.slice(api.indexOf('시뮬레이터 툴'), api.indexOf('settings:'));
     const surface = [...block.matchAll(/^\s{2}(sim\w+):/gm)].map((m) => m[1]);
-    expect(surface).toEqual(['simCatalog', 'simCarCatalog', 'simRpc']);
+    expect(surface).toEqual(['simCatalog', 'simCarCatalog', 'simFiles', 'simFile', 'simRpc']);
+    // 이 블록 안의 모든 경로가 /api/sim/ 으로 시작해야 한다.
+    for (const path of [...block.matchAll(/'(\/api\/[^'`]*)/g)].map((m) => m[1])) {
+      expect(path, path).toMatch(/^\/api\/sim\//);
+    }
+    for (const path of [...block.matchAll(/`(\/api\/[^'`]*)/g)].map((m) => m[1])) {
+      expect(path, path).toMatch(/^\/api\/sim\//);
+    }
   });
 
   /** 드라이버 계층은 ×100 정수 raw, 시뮬툴은 도·배율. 두 곳에서 환산하면 갈린다. */
@@ -129,5 +141,52 @@ describe('없는 기능을 흉내 내지 않는다', () => {
   it('클릭 피킹이 없다는 사실을 두 탭이 말한다', async () => {
     const html = await read('simtool.html');
     expect(html.match(/view\.pick/g)?.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('프리셋 메이커 — 파일이 목록의 출처다', () => {
+  /**
+   * 시뮬레이터의 `preset.list` 는 RPC 가 만든 것만 보여 준다(위젯이 그린 배치는 안 보인다).
+   * 실체는 `save/3D/Preset` 의 저장 파일에 있다.
+   */
+  it('목록을 저장 파일에서 읽는다 — preset.list 로 채우지 않는다', async () => {
+    const script = await read('simtoolPreset.js');
+    expect(script).toContain("ctx.file('preset'");
+    expect(script).toContain("ctx.files('preset')");
+    expect(script).not.toContain("rpc('preset.list')");
+  });
+
+  /**
+   * `preset.*` 호출은 시뮬레이터 UI 로 그린 주차면을 지운다. 사람이 모르고 누르면
+   * 작업물을 잃는다 — 탭에 배너를 두고 쓰기에는 확인을 받는다(마스터 결정 2026-08-07).
+   */
+  it('탭에 경고 배너가 있고 위험한 쓰기에 확인을 받는다', async () => {
+    const html = await read('simtool.html');
+    expect(html).toContain('id="spDanger"');
+    expect(html).toMatch(/시뮬레이터 UI 로 그린 주차면을 지웁니다/);
+
+    const script = await read('simtoolPreset.js');
+    // 시뮬레이터 상태를 지우는 셋은 전부 confirm 을 거친다.
+    for (const marker of ['spPush', 'spClear', 'spSimLoad']) {
+      const handler = script.slice(script.indexOf(`el('${marker}')`));
+      expect(handler.slice(0, 600), marker).toContain('confirm(');
+    }
+  });
+
+  /** 편집의 정본은 파일과 시뮬레이터 UI 다 — 화면에서 고치게 두면 어느 쪽이 맞는지 모른다. */
+  it('상세는 읽기 전용이다', async () => {
+    const html = await read('simtool.html');
+    for (const id of ['spOffsetX', 'spOffsetY', 'spOffsetZ']) {
+      expect(html, id).toMatch(new RegExp(`id="${id}"[^>]*readonly`));
+    }
+    expect(await read('simtoolPreset.js')).not.toContain("rpc('preset.update'");
+  });
+
+  /** 하나가 실패해도 멈추지 않는다 — 멈추면 시뮬레이터가 **반쯤 지워진** 상태로 남는다. */
+  it('보내기는 실패한 건을 모아 끝에 보고한다', async () => {
+    const script = await read('simtoolPreset.js');
+    const push = script.slice(script.indexOf('async function push('));
+    expect(push).toContain('failed.push');
+    expect(push).toContain('sent.length');
   });
 });

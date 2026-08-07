@@ -42,22 +42,38 @@
 
         <!-- ---------- 탭 ① 프리셋 메이커 (주차면 그룹) ---------- -->
         <div id="panelPreset">
+          <p class="warn" id="spDanger">
+            <strong>⚠ 이 탭의 쓰기 동작은 시뮬레이터 UI 로 그린 주차면을 지웁니다.</strong>
+            시뮬레이터는 위젯 목록과 RPC 목록을 <strong>따로</strong> 갖고 있어서,
+            <code>preset.*</code> 를 호출하면 위젯이 그려 둔 것이 사라집니다.
+            읽기(목록·상세)는 안전하고, <strong>「시뮬로 보내기」와 「전체 삭제」만</strong> 위험합니다.
+          </p>
+
           <section class="card">
             <h2>주차면 프리셋 <span class="tag" id="presetCount">-</span></h2>
             <div class="body">
               <p class="hint">
                 여기 「프리셋」은 <strong>주차면 그룹</strong>(N개 면의 배치 단위)입니다 —
                 카메라 제어의 <strong>PTZ 프리셋과 다른 것</strong>입니다.
+                목록은 <strong><code>save/3D/Preset</code> 의 저장 파일</strong>에서 옵니다 —
+                시뮬레이터의 <code>preset.list</code> 는 RPC 가 만든 것만 보여 주므로
+                사람이 그린 배치가 거기 안 보입니다.
               </p>
+              <div class="row">
+                <div class="field"><label for="spFile">저장 파일</label><select id="spFile"></select></div>
+                <button id="spReload" type="button">다시 읽기</button>
+              </div>
               <div class="row">
                 <div class="field"><label for="spList">프리셋</label><select id="spList" size="6"></select></div>
               </div>
               <div class="row">
-                <button id="spAdd" class="primary" type="button">추가</button>
-                <button id="spUpdate" type="button">수정</button>
-                <button id="spDelete" class="danger" type="button">삭제</button>
-                <button id="spClear" class="danger" type="button">리셋(전체)</button>
+                <button id="spPush" class="danger" type="button">시뮬로 보내기</button>
+                <button id="spClear" class="danger" type="button">시뮬 프리셋 전체 삭제</button>
               </div>
+              <p class="hint">
+                「시뮬로 보내기」는 <code>preset.clear</code> 뒤 파일의 프리셋을 하나씩
+                <code>preset.create</code> 로 넣습니다 — <strong>시뮬레이터의 기존 주차면이 전부 사라집니다.</strong>
+              </p>
             </div>
           </section>
 
@@ -73,9 +89,9 @@
                 <div class="field"><label for="spCamIdx">Camera idx</label><input id="spCamIdx" type="number" min="1" value="1"></div>
               </div>
               <div class="row">
-                <div class="field"><label for="spOffsetX">Offset X</label><input id="spOffsetX" type="number" step="0.001" value="0"></div>
-                <div class="field"><label for="spOffsetY">Offset Y</label><input id="spOffsetY" type="number" step="0.001" value="0"></div>
-                <div class="field"><label for="spOffsetZ">Offset Z (높이)</label><input id="spOffsetZ" type="number" step="0.001" value="0"></div>
+                <div class="field"><label for="spOffsetX">Offset X</label><input id="spOffsetX" type="number" step="0.001" value="0" readonly></div>
+                <div class="field"><label for="spOffsetY">Offset Y</label><input id="spOffsetY" type="number" step="0.001" value="0" readonly></div>
+                <div class="field"><label for="spOffsetZ">Offset Z (높이)</label><input id="spOffsetZ" type="number" step="0.001" value="0" readonly></div>
               </div>
               <div class="row">
                 <div class="field"><label for="spGroupRot">Group Face Rotate</label><input id="spGroupRot" type="number" step="0.001" value="0"></div>
@@ -93,6 +109,11 @@
                 <label class="checkbox" title="면 단위 토글은 시뮬레이터가 지원하지 않아 전체 재빌드로 켭니다"><input id="spUse3d" type="checkbox"> Use 3D <span class="tag">전역</span></label>
               </div>
               <p class="hint" id="spDerived">-</p>
+              <p class="hint">
+                좌표는 <strong>RPC 계(언리얼 Z-up)</strong>로 보여 줍니다 — 저장 파일은 Unity(Y-up)라
+                서버가 <code>RPC(x,y,z) = 파일(z,x,y)</code> 로 바꿔 읽습니다(실측 검증).
+                상세는 <strong>읽기 전용</strong>입니다: 편집은 시뮬레이터 UI 나 저장 파일에서 합니다.
+              </p>
             </div>
           </section>
 
@@ -116,11 +137,14 @@
                 회전 모드에서는 ◀▶ 가 Face Rotate, ▲▼ 가 Group Rotate 입니다.
               </p>
               <div class="row">
-                <div class="field"><label for="spFile">파일명</label><input id="spFile" placeholder="001_Preset_Seo_1.json"></div>
-                <button id="spSave" type="button">저장</button>
-                <button id="spLoad" type="button">열기</button>
+                <button id="spSimSave" type="button">시뮬에 저장</button>
+                <button id="spSimLoad" type="button">시뮬에서 열기</button>
               </div>
-              <p class="hint">저장 파일은 <strong>시뮬레이터 디스크</strong>에 JSON 으로 남습니다. 목록 조회는 언리얼에 <code>file.list</code> 신설이 필요합니다.</p>
+              <p class="hint">
+                이 둘은 <strong>시뮬레이터 디스크</strong>를 다룹니다(<code>preset.save</code>·<code>preset.load</code>) —
+                위 드롭다운의 <code>save/3D/Preset</code>(이 PC)과는 다른 곳입니다.
+                파일명은 위에서 고른 것을 씁니다.
+              </p>
             </div>
           </section>
         </div>

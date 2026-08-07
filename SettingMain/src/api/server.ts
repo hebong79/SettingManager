@@ -27,6 +27,7 @@ import { createRouteContext, type RouteHandler, type ServerDeps } from './routes
 import { settingsRoutes } from './routes/settingsRoutes.js';
 import { simRoutes } from './routes/simRoutes.js';
 import { SimRpcError } from '../sim/simRpcClient.js';
+import { SimFileError } from '../sim/simFiles.js';
 import { serveStatic } from './staticFiles.js';
 
 export type { ServerDeps } from './routes/routeContext.js';
@@ -119,6 +120,7 @@ function fail(res: ServerResponse, error: unknown): void {
   if (error instanceof DetectorError) return sendError(res, error.statusCode, error.message);
   if (error instanceof DatabaseError) return sendError(res, error.statusCode, error.message);
   if (error instanceof SimRpcError) return sendError(res, error.statusCode, error.message);
+  if (error instanceof SimFileError) return sendError(res, error.statusCode, error.message);
   if (error instanceof CameraDriverError) return sendError(res, error.statusCode, error.message);
   if (error instanceof ConfigError) return sendError(res, error.statusCode, error.message);
   sendError(res, 500, error instanceof Error ? error.message : String(error));

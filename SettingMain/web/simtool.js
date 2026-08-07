@@ -49,6 +49,12 @@ const ctx = {
     carCatalog ??= await api.simCarCatalog();
     return carCatalog;
   },
+  /**
+   * `save/3D/{Preset,CarPos,CameraPos}` 의 저장 파일. **좌표는 서버가 RPC 계로 바꿔 준다** —
+   * 화면이 두 좌표계를 동시에 들면 반드시 섞이고, 그 실패는 오류로 뜨지 않는다.
+   */
+  files: (kind) => api.simFiles(kind),
+  file: (kind, name) => api.simFile(kind, name),
   /** 지금 시뮬레이터가 아는 카메라 목록. 세 탭이 나눠 쓴다. */
   cameras: () => cameras,
   refreshCameras: loadCameras,
@@ -214,7 +220,9 @@ async function showTab(panelId) {
     button.classList.toggle('active', button.dataset.panel === panelId);
   }
   active = panels.find((entry) => entry.id === panelId) ?? null;
-  if (rpcUrl) await active?.panel?.onActivate?.();
+  // **연결 여부와 무관하게 활성화한다.** 저장 파일 목록은 이 PC 것이라 시뮬레이터가
+  // 꺼져 있어도 읽을 수 있다 — 패널이 RPC 가 필요한 부분만 알아서 실패한다.
+  await active?.panel?.onActivate?.();
 }
 
 // --- 배선 -----------------------------------------------------------------

@@ -1,6 +1,9 @@
 import { readJsonBody, sendJson } from '../httpUtil.js';
 import { SIM_CATALOG } from '../../sim/simCatalog.js';
 import { loadCarCatalog } from '../../sim/carCatalog.js';
+import {
+  SimFileError, isSaveKind, listSimFiles, readCameraFile, readCarFile, readPresetFile,
+} from '../../sim/simFiles.js';
 import { SimRpcClient, SimRpcError } from '../../sim/simRpcClient.js';
 import type { RouteHandler } from './routeContext.js';
 
@@ -34,6 +37,32 @@ export const simRoutes: RouteHandler = async (ctx) => {
   // 차량 프리팹 이름. **시뮬레이터가 주지 않는 것**이라 정본 파일에서 읽어 준다.
   if (method === 'GET' && pathname === '/api/sim/car-catalog') {
     sendJson(res, 200, await loadCarCatalog());
+    return true;
+  }
+
+  // --- 저장 파일 (save/3D/{Preset,CarPos,CameraPos}) --------------------------
+  //
+  // 시뮬레이터의 `preset.list` 는 **RPC 가 만든 것만** 보여 준다(위젯이 그린 주차면은
+  // 안 보인다 — 실측으로 빈 배열). 사람이 만든 배치의 실체는 저장 파일에 있다.
+  // 이 폴더 목록이 곧 「열기」 목록이라 언리얼에 `file.list` 를 신설하지 않아도 된다.
+  const files = /^\/api\/sim\/files\/([a-z]+)$/.exec(pathname);
+  if (files && method === 'GET') {
+    const kind = files[1]!;
+    if (!isSaveKind(kind)) throw new SimFileError(`알 수 없는 저장 종류입니다: ${kind}`);
+    sendJson(res, 200, { kind, files: await listSimFiles(kind) });
+    return true;
+  }
+
+  const file = /^\/api\/sim\/files\/([a-z]+)\/(.+)$/.exec(pathname);
+  if (file && method === 'GET') {
+    const kind = file[1]!;
+    if (!isSaveKind(kind)) throw new SimFileError(`알 수 없는 저장 종류입니다: ${kind}`);
+    const name = decodeURIComponent(file[2]!);
+    // 좌표는 **읽어 주는 이 자리에서** RPC 계로 바꾼다(simCoords). 화면이 두 좌표계를
+    // 동시에 들고 있으면 반드시 섞인다.
+    if (kind === 'preset') { sendJson(res, 200, { kind, name, presets: await readPresetFile(name) }); return true; }
+    if (kind === 'car') { sendJson(res, 200, { kind, name, cars: await readCarFile(name) }); return true; }
+    sendJson(res, 200, { kind, name, cameras: await readCameraFile(name) });
     return true;
   }
 
