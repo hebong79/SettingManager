@@ -23,6 +23,22 @@ const fmt = (v, digits = 2) => (typeof v === 'number' && Number.isFinite(v) ? v.
  * 시뮬레이터에 저장되지 않는다(마스터 확인). `cam.setLimits` 같은 RPC 도 없다 —
  * 슬라이더가 다룰 범위를 사람이 정하는 것뿐이다.
  *
+ * ## ⚠ tilt 는 **양수가 하향**이다
+ *
+ * 근거: RPC 목록 문서 §3 — `cam.setTilt` "tilt 양수가 하향". 짐벌 규약이 화면 직관과
+ * 반대라, ▲ 버튼에 `tilt + step` 을 넣으면 **카메라가 아래로 내려간다.** 그래서 tilt 축만
+ * 부호를 뒤집는다. 이 한 줄이 없으면 방향 패드가 통째로 거꾸로 동작한다.
+ *
+ * ## `cam.setPosition` 은 `pos` 객체를 받는다
+ *
+ * `{camId, x, y}` 로 평평하게 보내면 파라미터가 안 잡힌다 — `{camId, pos:{x,y,z}}` 여야 한다.
+ *
+ * ## 카메라 프리셋은 **시뮬레이터에 없다**
+ *
+ * `cam.savePreset`·`loadPreset`·`applyPreset` 셋 다 등록만 돼 있고 동작하지 않는다
+ * (per-camera 프리셋 메모리 없음 — 문서 §10). 그래서 그 버튼을 만들지 않았다.
+ * 문서는 이것이 "웹 프리셋 이동 = PTZ만 변경" 현상의 직접 원인이라고 적고 있다.
+ *
  * ## 상대 이동을 절대값으로 보낸다
  *
  * `cam.setPTZ` 에 속도 파라미터가 없다. 없는 파라미터를 지어 보내면 서버가 조용히 버려
@@ -83,11 +99,17 @@ export function createCamPanel(ctx) {
     showPtz();
   }
 
-  /** 방향 패드. `step` 은 pan·tilt 가 도(°), zoom 이 배율이다. */
+  /**
+   * 방향 패드. `step` 은 pan·tilt 가 도(°), zoom 이 배율이다.
+   *
+   * **tilt 만 부호를 뒤집는다** — 시뮬레이터에서 tilt 양수가 하향이라, ▲(위)가 보낸
+   * `sign:+1` 을 그대로 더하면 카메라가 내려간다.
+   */
   async function nudge(axis, sign) {
     if (!ptz) await readPtz();
     if (!ptz) throw new Error('현재 PTZ 를 읽지 못했습니다');
-    const step = Number(el('camStep').value) * sign;
+    const towardScreen = axis === 'tilt' ? -1 : 1;
+    const step = Number(el('camStep').value) * sign * towardScreen;
     const next = { ...ptz, [axis]: (ptz[axis] ?? 0) + step };
     await ctx.rpc('cam.setPTZ', { camId: camId(), pan: next.pan, tilt: next.tilt, zoom: next.zoom });
     ptz = next;
@@ -102,10 +124,11 @@ export function createCamPanel(ctx) {
     if (axis.key === 'z') {
       await ctx.rpc('cam.setHeight', { camId: camId(), height: value });
     } else {
+      // `pos` **객체**여야 한다. 평평하게 보내면 파라미터가 안 잡힌다.
+      // 높이(z)도 함께 실어야 이동이 카메라를 바닥으로 떨어뜨리지 않는다.
       await ctx.rpc('cam.setPosition', {
         camId: camId(),
-        x: Number(el('camX').value),
-        y: Number(el('camY').value),
+        pos: { x: Number(el('camX').value), y: Number(el('camY').value), z: Number(el('camZ').value) },
       });
     }
     await ctx.refreshCameras();
@@ -134,30 +157,21 @@ export function createCamPanel(ctx) {
   }
 
   el('camAdd').addEventListener('click', guard(async () => {
-    const camera = currentCamera();
-    // 새 카메라는 **지금 보고 있는 카메라 옆**에 세운다. 원점에 세우면 맵 밖일 수 있고,
-    // 그러면 만들자마자 어디로 갔는지 찾아야 한다.
-    const pos = camera?.pos ? { x: camera.pos.x + 5, y: camera.pos.y, z: camera.pos.z } : { x: 0, y: 0, z: 5 };
-    await ctx.rpc('cam.create', { pos });
+    // `cam.create` 는 파라미터를 받지 않는다(문서 §3) — 시뮬레이터가 자리를 정한다.
+    // 원하는 자리는 만든 **뒤에** setPosition 으로 옮긴다.
+    const created = await ctx.rpc('cam.create');
     await ctx.refreshCameras();
-    ctx.toast('카메라를 추가했습니다', 'ok');
+    const newId = created?.camId;
+    if (newId) el('camList').value = String(newId);
+    showPosition();
+    await readPtz();
+    ctx.toast(`카메라를 추가했습니다${newId ? ` (#${newId})` : ''}`, 'ok');
   }));
 
   el('camDelete').addEventListener('click', guard(async () => {
     if (!camId()) throw new Error('카메라를 선택하세요');
     if (!confirm(`카메라 #${camId()} 를 삭제합니다.\n이 카메라의 영상·프리셋도 함께 사라집니다.\n\n계속할까요?`)) return;
     await ctx.rpc('cam.delete', { camId: camId() });
-    await ctx.refreshCameras();
-  }));
-
-  el('camPresetSave').addEventListener('click', guard(async () => {
-    await ctx.rpc('cam.savePreset', { camId: camId(), presetId: Number(el('camPresetId').value) });
-    ctx.toast('카메라 프리셋을 저장했습니다', 'ok');
-  }));
-
-  el('camPresetApply').addEventListener('click', guard(async () => {
-    await ctx.rpc('cam.applyPreset', { camId: camId(), presetId: Number(el('camPresetId').value) });
-    await readPtz();
     await ctx.refreshCameras();
   }));
 

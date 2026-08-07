@@ -117,10 +117,14 @@ export function createPresetPanel(ctx) {
     await reload();
   }));
 
+  /**
+   * **3D 는 전역 토글이다.** `preset.setBoxVisible`(면 단위)은 시뮬레이터에 등록만 돼 있고
+   * 동작하지 않는다 — 문서 §10 이 "전역 3D 는 rebuildAll" 이라고 지시한다.
+   * 그래서 체크박스가 프리셋 하나가 아니라 **전체 재빌드**를 부른다. 라벨도 그렇게 적었다.
+   */
   el('spUse3d').addEventListener('change', guard(async () => {
-    const preset = selected();
-    if (!preset) throw new Error('프리셋을 선택하세요');
-    await ctx.rpc('preset.setBoxVisible', { idx: preset.idx, visible: el('spUse3d').checked });
+    await ctx.rpc('preset.rebuildAll', { showQubeBox: el('spUse3d').checked });
+    await reload();
   }));
 
   /** 방향 패드. 이동은 X·Y 델타(Z-up), 회전은 Face/Group 을 나눠 쓴다. */

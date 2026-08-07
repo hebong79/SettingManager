@@ -1,50 +1,14 @@
 /**
- * Park3D 차량 카탈로그 — **마스터가 제공한 정본**(2026-08-07).
+ * 차량 타입·색상 열거형 — **마스터가 제공한 정본**(2026-08-07).
  *
- * - 차량 23종: `docs/reference/unreal/20260807_180554_차량_오브젝트_목록.md`
- *   (출처 `Park3D/Content/Data/DT_CarCatalog.uasset`, 메시 `/Game/Cars/Car_no_plate/<이름>`)
- * - `ECarType` · `ECarColor`: 마스터 제공 열거형
+ * ## 차량 프리팹 목록은 여기 없다
  *
- * ## 왜 화면에 박아 두는가
+ * 그쪽 정본은 `SettingMain/config/car_catalog.json` 이고 서버가 `/api/sim/car-catalog` 로
+ * 읽어 준다. **배열 순서가 곧 `prefabId`(1부터)** 이므로 화면에 복사해 두면 파일을 고쳤을 때
+ * 한쪽만 바뀌고, 그러면 저장된 `CarPos_*.json` 이 다른 차종으로 해석된다.
  *
- * 시뮬레이터 RPC 에 **차종 이름 목록을 주는 메서드가 없다**(실측 80종 어디에도 없다).
- * `car.get` 은 `prefabId` 숫자만 준다. 목록이 없으면 사람이 "6번이 뭐였지"를 외워야 한다.
- *
- * 서버가 목록을 주게 되면 **이 파일을 지우고 그쪽을 쓴다** — 두 벌로 두면 갈린다.
- *
- * ## ⚠ prefabId 대응은 미확정이다
- *
- * 참조 문서 §4 가 그대로 유효하다: Park3D 의 `Idx` 는 **이름순 순번**이고 Unity 원본
- * 프리팹 배열 순서와 일치한다는 보장이 없다. 기존 `CarPos_*.json` 을 열면 다른 차종이
- * 뜰 수 있다 — 화면이 그 사실을 말한다.
+ * 열거형 둘은 파일이 아니라 언리얼 C++ 소스에 있는 값이라 여기 둔다 — 서버가 읽을 파일이 없다.
  */
-
-/** `Idx` 는 1부터. 치수는 가로 × 길이 × 높이(m). */
-export const CAR_PREFABS = [
-  { id: 1, name: 'BMW_1시리즈', size: '2.08 × 4.39 × 1.47' },
-  { id: 2, name: '기아_EV6', size: '2.05 × 4.64 × 1.55' },
-  { id: 3, name: '기아_EV9', size: '2.28 × 5.01 × 1.78' },
-  { id: 4, name: '기아_K5', size: '2.15 × 4.89 × 1.49' },
-  { id: 5, name: '기아_레이', size: '2.05 × 3.78 × 1.85' },
-  { id: 6, name: '기아_모닝', size: '1.83 × 3.62 × 1.63' },
-  { id: 7, name: '기아_봉고', size: '2.08 × 5.21 × 2.11' },
-  { id: 8, name: '기아_봉고_탑차', size: '2.08 × 5.21 × 2.51' },
-  { id: 9, name: '기아_소울', size: '1.96 × 4.10 × 1.57' },
-  { id: 10, name: '기아_쏘렌토', size: '2.11 × 4.72 × 1.69' },
-  { id: 11, name: '기아_카니발', size: '2.36 × 5.26 × 1.84' },
-  { id: 12, name: '르노삼성_SM7', size: '2.24 × 5.12 × 1.54' },
-  { id: 13, name: '볼보_V60', size: '2.08 × 4.75 × 1.42' },
-  { id: 14, name: '제네시스_G90', size: '2.10 × 5.02 × 1.41' },
-  { id: 15, name: '포드_머스탱', size: '2.04 × 4.66 × 1.33' },
-  { id: 16, name: '폭스바겐_폴로', size: '2.01 × 4.10 × 1.59' },
-  { id: 17, name: '현대_스타렉스', size: '2.27 × 5.18 × 1.96' },
-  { id: 18, name: '현대_싼타페', size: '2.38 × 4.82 × 1.77' },
-  { id: 19, name: '현대_쏘나타', size: '2.12 × 4.92 × 1.46' },
-  { id: 20, name: '현대_아이오닉9', size: '2.30 × 5.10 × 1.81' },
-  { id: 21, name: '현대_캐스퍼', size: '1.87 × 3.64 × 1.63' },
-  { id: 22, name: '현대_포터', size: '1.92 × 5.02 × 1.97' },
-  { id: 23, name: '혼다_ZR-V', size: '2.14 × 4.54 × 1.64' },
-];
 
 /**
  * `ECarType`. **`None = 0` 이 있다** — 0 을 "소형"으로 읽으면 한 칸씩 밀린다.
@@ -66,7 +30,7 @@ export const CAR_COLORS = [
   'White', 'Black', 'Silver', 'Gray', 'Red', 'Blue', 'Green', 'Yellow', 'Orange', 'Purple',
 ];
 
-/** `prefabId` → 표시 이름. 범위 밖이면 숫자를 그대로 보여 준다(지어내지 않는다). */
-export function prefabName(id) {
-  return CAR_PREFABS.find((entry) => entry.id === Number(id))?.name ?? `#${id ?? '-'}`;
+/** `prefabId` → 표시 이름. **모르는 번호는 지어내지 않고 숫자를 그대로** 보여 준다. */
+export function prefabName(cars, id) {
+  return cars?.find((entry) => entry.prefabId === Number(id))?.name ?? `#${id ?? '-'}`;
 }

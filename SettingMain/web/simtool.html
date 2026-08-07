@@ -90,7 +90,7 @@
                   <option value="0">Default</option><option value="1">Type 1</option><option value="2">Type 2</option><option value="3">Type 3</option>
                 </select></div>
                 <label class="checkbox"><input id="spBaseWidth" type="checkbox" checked> Is Base width</label>
-                <label class="checkbox"><input id="spUse3d" type="checkbox"> Use 3D</label>
+                <label class="checkbox" title="면 단위 토글은 시뮬레이터가 지원하지 않아 전체 재빌드로 켭니다"><input id="spUse3d" type="checkbox"> Use 3D <span class="tag">전역</span></label>
               </div>
               <p class="hint" id="spDerived">-</p>
             </div>
@@ -134,6 +134,11 @@
                 <div class="field"><label for="carPrefab">차량 프리팹</label><select id="carPrefab"></select></div>
                 <div class="field"><label for="carType">차량 타입</label><select id="carType"></select></div>
               </div>
+              <p class="hint" id="carCatalogNote">
+                프리팹 목록의 정본은 <code>config/car_catalog.json</code> 입니다 —
+                <strong>배열 순서가 곧 prefabId(1부터)</strong>이고, 순서를 바꾸면 저장된
+                <code>CarPos_*.json</code> 의 차종 해석이 바뀝니다.
+              </p>
               <div class="row">
                 <div class="field"><label for="carPresetId">Preset Id</label><input id="carPresetId" type="number" min="1" value="1"></div>
                 <div class="field"><label for="carCount">개수</label><input id="carCount" type="number" min="1" value="7"></div>
@@ -167,6 +172,11 @@
                 </select></div>
                 <button id="carResetRandom" type="button">리셋랜덤</button>
               </div>
+              <p class="hint">
+                랜덤은 <code>car.resetRandom</code> 하나로 합니다. 시뮬레이터의
+                <code>random.slotPlace</code>·<code>slotJitter</code>·<code>frontBack</code>·<code>randomizeAll</code> 은
+                <strong>등록만 돼 있고 동작하지 않습니다.</strong>
+              </p>
               <div class="row">
                 <div class="field"><label for="carList">차량</label><select id="carList" size="8"></select></div>
               </div>
@@ -202,11 +212,12 @@
                 <button id="camAdd" type="button">추가</button>
                 <button id="camDelete" class="danger" type="button">삭제</button>
               </div>
-              <div class="row">
-                <div class="field"><label for="camPresetId">Preset ID</label><input id="camPresetId" type="number" min="1" value="1"></div>
-                <button id="camPresetSave" type="button">프리셋 저장</button>
-                <button id="camPresetApply" class="primary" type="button">프리셋 적용</button>
-              </div>
+              <p class="warn">
+                <strong>카메라 프리셋은 시뮬레이터에 없습니다.</strong>
+                <code>cam.savePreset</code>·<code>loadPreset</code>·<code>applyPreset</code> 셋 다
+                등록만 돼 있고 동작하지 않습니다(per-camera 프리셋 메모리 없음).
+                그래서 버튼을 만들지 않았습니다 — 눌러도 안 되는 버튼보다 없는 편이 낫습니다.
+              </p>
             </div>
           </section>
 

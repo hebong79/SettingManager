@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
-import { findSimMethod } from '../src/sim/simCatalog.js';
+import { UNIMPLEMENTED, findSimMethod } from '../src/sim/simCatalog.js';
 
 /**
  * 시뮬레이터 툴 화면의 **배선 검사**.
@@ -51,6 +51,22 @@ describe('시뮬레이터 툴 화면', () => {
     expect(unknown).toEqual([]);
   });
 
+  /**
+   * `system.catalog` 는 **등록 여부만** 알려주므로 등록됐지만 죽은 10개를 구분하지 못한다.
+   * 화면이 그중 하나를 부르면 눌러 봐야 실패를 안다 — 여기서 미리 막는다.
+   */
+  it('등록만 되고 동작하지 않는 메서드를 화면이 부르지 않는다', async () => {
+    const dead = new Set(UNIMPLEMENTED.map((entry) => entry.method));
+    expect(dead.size).toBeGreaterThanOrEqual(8);
+    const offences: string[] = [];
+    for (const script of PANELS) {
+      for (const method of calledMethods(await read(script))) {
+        if (dead.has(method)) offences.push(`${script} → ${method}`);
+      }
+    }
+    expect(offences).toEqual([]);
+  });
+
   it('스캔이 실제로 RPC 호출을 찾았다', async () => {
     const all = (await Promise.all(PANELS.map(read))).flatMap(calledMethods);
     expect(new Set(all).size).toBeGreaterThan(15);
@@ -71,10 +87,16 @@ describe('시뮬레이터 툴의 독립', () => {
     }
   });
 
-  it('시뮬툴 API 표면은 둘뿐이다 — 늘어나면 경계가 새는 것이다', async () => {
+  /**
+   * 표면이 **셋**이다: 허용 목록 · RPC 호출 · 차량 프리팹 이름.
+   * 셋째가 있는 이유는 시뮬레이터가 차종 이름을 주지 않아서다(`config/car_catalog.json`).
+   * 넷째가 생기면 그때는 경계가 새고 있는지 다시 봐야 한다.
+   */
+  it('시뮬툴 API 표면은 셋뿐이다 — 늘어나면 경계가 새는 것이다', async () => {
     const api = await read('api.js');
     const block = api.slice(api.indexOf('시뮬레이터 툴'), api.indexOf('settings:'));
-    expect([...block.matchAll(/^\s{2}sim\w+:/gm)]).toHaveLength(2);
+    const surface = [...block.matchAll(/^\s{2}(sim\w+):/gm)].map((m) => m[1]);
+    expect(surface).toEqual(['simCatalog', 'simCarCatalog', 'simRpc']);
   });
 
   /** 드라이버 계층은 ×100 정수 raw, 시뮬툴은 도·배율. 두 곳에서 환산하면 갈린다. */

@@ -70,10 +70,20 @@ export class SimRpcClient {
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
-  /** 카탈로그에 있는 메서드만 나간다. 없는 것은 **서버를 두드리기 전에** 거절한다. */
+  /**
+   * 카탈로그에 있고 **실제로 동작하는** 메서드만 나간다.
+   *
+   * 등록만 되고 호출하면 실패하는 것이 10개 있는데(`system.catalog` 로는 구분되지 않는다),
+   * 그것들은 서버를 두드리기 전에 **501 + 사유**로 거절한다. 눌러 보고 나서
+   * `-32000 미구현` 을 읽는 것보다 무엇을 대신 써야 하는지까지 알 수 있다.
+   */
   async call(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
-    if (!findSimMethod(method)) {
+    const entry = findSimMethod(method);
+    if (!entry) {
       throw new SimRpcError(`허용되지 않은 시뮬레이터 메서드입니다: ${method}`, 400);
+    }
+    if (entry.unimplemented) {
+      throw new SimRpcError(`${method} 은(는) 시뮬레이터에 등록만 돼 있고 동작하지 않습니다 — ${entry.unimplemented}`, 501);
     }
     return this.send(method, params);
   }

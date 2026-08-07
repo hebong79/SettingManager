@@ -1,4 +1,4 @@
-import { CAR_PREFABS, CAR_TYPES, prefabName } from './simtoolCatalog.js';
+import { CAR_TYPES, prefabName } from './simtoolCatalog.js';
 
 const el = (id) => document.getElementById(id);
 const num = (id) => Number(el(id).value);
@@ -12,10 +12,18 @@ const num = (id) => Number(el(id).value);
  * 언리얼과 갈린다). 그 메서드가 아직 없으므로 지금은 **자동생성**(`car.createLine`)과
  * **좌표 직접 입력**으로 배치한다. 없는 기능을 흉내 내지 않는다.
  *
- * ## 차종 목록은 화면이 들고 있다
+ * ## 차종 목록의 정본은 `config/car_catalog.json` 이다
  *
- * 시뮬레이터 RPC 에 이름 목록을 주는 메서드가 없다(실측). `simtoolCatalog.js` 참조 —
- * 서버가 주게 되면 그쪽으로 옮긴다.
+ * 시뮬레이터 RPC 에 이름 목록을 주는 메서드가 없어서(82개 어디에도) 서버가
+ * `/api/sim/car-catalog` 로 그 파일을 읽어 준다. **배열 순서가 곧 `prefabId`(1부터)** 라,
+ * 화면에 복사해 두면 파일을 고쳤을 때 한쪽만 바뀌고 저장된 `CarPos_*.json` 이
+ * 다른 차종으로 해석된다.
+ *
+ * ## `random.*` 은 절반이 죽어 있다
+ *
+ * `slotPlace`·`placeInView`·`slotJitter`·`frontBack`·`randomizeAll` 다섯은 등록만 돼 있고
+ * 동작하지 않는다(문서 §6·§10). 그래서 랜덤은 **`car.resetRandom`** 하나로만 한다 —
+ * 이쪽은 실제로 구현돼 있다.
  *
  * ## Front / Back
  *
@@ -24,21 +32,30 @@ const num = (id) => Number(el(id).value);
  */
 export function createCarPanel(ctx) {
   let cars = [];
+  /** `config/car_catalog.json` 에서 온 프리팹 목록. 못 읽었으면 **비어 있고 화면이 그렇게 말한다.** */
+  let prefabs = [];
 
-  function fillCatalogs() {
-    if (el('carPrefab').options.length) return;
-    el('carPrefab').replaceChildren(...CAR_PREFABS.map((entry) => {
-      const option = new Option(`${entry.id}. ${entry.name}`, String(entry.id));
-      option.title = entry.size;
-      return option;
-    }));
-    el('carPrefab').value = '4';   // 기아_K5 — 스크린샷 기본값
-    el('carType').replaceChildren(...CAR_TYPES.map((entry) => {
-      const option = new Option(entry.name, String(entry.id));
-      option.title = entry.note;
-      return option;
-    }));
-    el('carType').value = '1';
+  async function fillCatalogs() {
+    if (!el('carType').options.length) {
+      el('carType').replaceChildren(...CAR_TYPES.map((entry) => {
+        const option = new Option(entry.name, String(entry.id));
+        option.title = entry.note;
+        return option;
+      }));
+      el('carType').value = '1';
+    }
+    if (prefabs.length) return;
+    const catalog = await ctx.carCatalog();
+    prefabs = catalog.cars ?? [];
+    el('carPrefab').replaceChildren(...prefabs.map((entry) =>
+      new Option(`${entry.prefabId}. ${entry.name}`, String(entry.prefabId))));
+    // 못 읽었으면 **지어내지 않는다** — 잘못된 이름으로 배치해 놓고 맞다고 믿는 것이 최악이다.
+    if (catalog.reason) {
+      el('carCatalogNote').className = 'warn';
+      el('carCatalogNote').textContent = catalog.reason;
+    } else if (prefabs.some((entry) => entry.name === '기아_K5')) {
+      el('carPrefab').value = String(prefabs.find((entry) => entry.name === '기아_K5').prefabId);
+    }
   }
 
   function selected() {
@@ -49,7 +66,7 @@ export function createCarPanel(ctx) {
     el('carCountTag').textContent = `${cars.length}대`;
     const previous = el('carList').value;
     el('carList').replaceChildren(...cars.map((car) => {
-      const option = new Option(`${car.carNameId}  ·  ${prefabName(car.prefabId)}`, car.carNameId);
+      const option = new Option(`${car.carNameId}  ·  ${prefabName(prefabs, car.prefabId)}`, car.carNameId);
       if (!car.visible) option.textContent += '  (숨김)';
       return option;
     }));
@@ -144,8 +161,7 @@ export function createCarPanel(ctx) {
     if (!fileName) throw new Error('파일명을 입력하세요');
     await ctx.rpc('car.load', { fileName });
     await reload();
-    // 참조 문서 §4 의 미해결 사항이다 — 조용히 넘기면 다른 차종이 떴을 때 아무도 모른다.
-    ctx.toast(`${fileName} 을 열었습니다. prefabId ↔ 차종 대응은 미확정이라 차종이 다를 수 있습니다.`, 'ok');
+    ctx.toast(`${fileName} 을 열었습니다 (차량 ${cars.length}대).`, 'ok');
   }));
 
   el('carClear').addEventListener('click', guard(async () => {
@@ -156,11 +172,11 @@ export function createCarPanel(ctx) {
 
   return {
     async onActivate() {
-      fillCatalogs();
+      await fillCatalogs();
       await reload();
     },
     async onConnect() {
-      fillCatalogs();
+      await fillCatalogs();
     },
   };
 }

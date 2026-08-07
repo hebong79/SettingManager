@@ -203,6 +203,10 @@ export const ROUTE_CATALOG: readonly RouteCatalogEntry[] = [
     notes: '이 목록 밖 메서드는 프록시가 400 으로 거절한다. 시뮬레이터 자신이 무엇을 갖고 있는지는 system.catalog 로 따로 묻는다.',
   },
   {
+    method: 'GET', path: '/api/sim/car-catalog', title: '차량 프리팹 이름 (prefabId 순)', mutating: false, movesCamera: false,
+    notes: '정본은 config/car_catalog.json — 배열 순서가 곧 prefabId(1부터)다. 시뮬레이터 RPC 는 이 목록을 주지 않는다.',
+  },
+  {
     // **한 경로에 80가지 행위가 들어 있다.** 실제 행위는 본문의 `method` 가 정하므로
     // 이 항목 하나로는 안전한 것과 위험한 것을 가를 수 없다. 그래서 가장 위험한 쪽에
     // 맞춰 표시한다 — `cam.setPTZ` 처럼 카메라를 실제로 돌리는 것이 목록에 있다.

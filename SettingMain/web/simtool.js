@@ -38,10 +38,17 @@ async function rpc(method, params = {}) {
   return data.result;
 }
 
+/** 차량 프리팹 이름. 시뮬레이터가 주지 않아 서버가 `config/car_catalog.json` 을 읽어 준다. */
+let carCatalog = null;
+
 const ctx = {
   rpc,
   toast,
   reportError,
+  async carCatalog() {
+    carCatalog ??= await api.simCarCatalog();
+    return carCatalog;
+  },
   /** 지금 시뮬레이터가 아는 카메라 목록. 세 탭이 나눠 쓴다. */
   cameras: () => cameras,
   refreshCameras: loadCameras,
@@ -92,12 +99,16 @@ async function connect() {
     // **우리가 부를 것 중 서버에 없는 것**을 화면이 먼저 말한다. 눌러 본 뒤에 501 을
     // 보는 것보다 낫고, 시뮬레이터 버전이 뒤처졌을 때 무엇이 빠졌는지 바로 보인다.
     const missing = allowed.methods.filter((entry) => !have.has(entry.method)).map((entry) => entry.method);
+    // **등록 ≠ 동작.** `system.catalog` 는 등록 여부만 알려주므로, 호출하면 실패하는 것들은
+    // 우리 카탈로그가 따로 알고 있다 — 그 수를 함께 보여 준다.
+    const dead = allowed.methods.filter((entry) => entry.unimplemented).length;
     tag.textContent = `연결됨 · ${have.size} method`;
     tag.className = 'tag ok';
     note.className = 'capability-note ready';
     note.innerHTML = missing.length
       ? `포트 ${health.port} 에 연결됐지만 이 화면이 쓰는 메서드 ${missing.length}개가 서버에 없습니다: <code>${missing.join('</code> <code>')}</code>`
-      : `포트 ${health.port} · 이 화면이 쓰는 메서드가 전부 있습니다.`;
+      : `포트 ${health.port} · 이 화면이 쓰는 메서드가 전부 등록돼 있습니다.`
+        + (dead ? ` 그중 <strong>${dead}개는 등록만 되고 동작하지 않습니다</strong> — 해당 기능은 화면에서 빼거나 대체 경로를 씁니다.` : '');
     setPanelsEnabled(true);
     await loadCameras();
     await active?.panel?.onConnect?.();

@@ -1,5 +1,6 @@
 import { readJsonBody, sendJson } from '../httpUtil.js';
 import { SIM_CATALOG } from '../../sim/simCatalog.js';
+import { loadCarCatalog } from '../../sim/carCatalog.js';
 import { SimRpcClient, SimRpcError } from '../../sim/simRpcClient.js';
 import type { RouteHandler } from './routeContext.js';
 
@@ -27,6 +28,12 @@ export const simRoutes: RouteHandler = async (ctx) => {
   // 화면이 "무엇이 가능한지"와 "지금 연결됐는지"를 따로 물을 수 있어야 한다.
   if (method === 'GET' && pathname === '/api/sim/catalog') {
     sendJson(res, 200, { rpcUrl: config.simTool.rpcUrl, methods: SIM_CATALOG });
+    return true;
+  }
+
+  // 차량 프리팹 이름. **시뮬레이터가 주지 않는 것**이라 정본 파일에서 읽어 준다.
+  if (method === 'GET' && pathname === '/api/sim/car-catalog') {
+    sendJson(res, 200, await loadCarCatalog());
     return true;
   }
 
