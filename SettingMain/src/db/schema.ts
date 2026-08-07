@@ -45,7 +45,7 @@
  * 그래도 잊었을 때를 대비해, 여는 시점에 이 `SCHEMA_SQL` 과 실제 파일을 대조해 없는 표·열을
  * 이름째 던지는 안전망이 있다(`database.ts` 의 `verifySchema`) — 판을 안 올려도 대조가 잡는다.
  */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 export const SCHEMA_SQL = `
 -- 4. 주차장 정보 -------------------------------------------------------------
@@ -155,4 +155,30 @@ CREATE TABLE IF NOT EXISTS parking_evnt (
   img2        TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_evnt_slot_time ON parking_evnt(slot_id, update_time);
+
+-- v6: 차량 3D 육면체 검출 이력 (문서에 없는 표 — 신설) ---------------------------
+-- 상류(baro_calory)는 검출을 던지고 잊는다. 커미셔닝에는 "그때 뭐가 보였나"가 남아야 한다.
+--
+-- detections·calibration 은 **사이드카 어휘 그대로** 담는다(position_m·size_m·yaw_deg·
+-- segments). 개명하면 사이드카 로그·오프라인 도구와 대조가 안 되고 좌표계 규약이 두 벌이 된다.
+-- 열로 펴지 않는 이유도 같다 — 그 스키마는 우리 것이 아니다.
+--
+-- calibration 을 반드시 함께 남긴다: **무엇을 기준으로 잰 값인지가 곧 값의 의미다.**
+-- 단안 3D 는 내부·외부 파라미터 없이 성립하지 않으므로, 그것 없는 미터 값은 숫자일 뿐이다.
+--
+-- 스냅샷 JPEG 자체는 담지 않는다(용량). PTZ 는 남긴다 — 자세 없이는 같은 그림을 다시 못 본다.
+CREATE TABLE IF NOT EXISTS vehicle_box (
+  detect_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+  cam_id      INTEGER NOT NULL REFERENCES camera_info(cam_id) ON DELETE CASCADE,
+  captured_at TEXT    NOT NULL,
+  ptz_pan     INTEGER,
+  ptz_tilt    INTEGER,
+  ptz_zoom    INTEGER,
+  model       TEXT,
+  latency_ms  REAL,
+  box_count   INTEGER NOT NULL,
+  detections  TEXT    NOT NULL CHECK (json_valid(detections)),
+  calibration TEXT    CHECK (calibration IS NULL OR json_valid(calibration))
+);
+CREATE INDEX IF NOT EXISTS idx_vehicle_box_cam_time ON vehicle_box(cam_id, captured_at);
 `;

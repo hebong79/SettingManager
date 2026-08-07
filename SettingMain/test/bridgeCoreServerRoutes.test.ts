@@ -96,6 +96,11 @@ async function start(options: { intrinsics?: boolean; object3d?: boolean } = {})
       server: { host: '127.0.0.1', port: 0 },
       simulator: { baseUrl: 'http://127.0.0.1:8080' },
       core: { provider: 'bridge', perCamera: {} },
+      // **캘리브레이션을 결정적으로 꺼 둔다.** 그 능력은 이 호스트에 ffmpeg 가 있느냐에
+      // 달려 있어서, 기본값(`ffmpeg`)으로 두면 개발 기계에서는 켜지고 CI 에서는 꺼져
+      // 같은 테스트가 기계마다 다른 답을 낸다. 여기서 보려는 것은 캘리브레이션이 아니라
+      // **나머지 능력의 켜짐/꺼짐**이므로 없는 실행 파일을 가리켜 변수를 없앤다.
+      streaming: { ffmpegPath: 'ffmpeg-does-not-exist-on-purpose' },
       ...(options.object3d ? { object3d: { baseUrl: 'http://127.0.0.1:9070' } } : {}),
       activeCameraId: 'cam-a',
       cameras: [{
@@ -132,14 +137,17 @@ afterEach(async () => {
 });
 
 describe('브리지 능력 선언', () => {
-  it('실측 표와 사이드카가 다 있으면 6종이 켜진다 — 캘리브레이션·호밍만 남는다', async () => {
+  it('실측 표와 사이드카가 다 있으면 6종이 켜진다 — 호밍은 미구현, 캘리브레이션은 ffmpeg 가 없어서 꺼진다', async () => {
     await start({ intrinsics: true, object3d: true });
     const { body } = await api('/api/core/capabilities');
     expect(body.provider).toBe('bridge');
     const ok = Object.entries(body.supported).filter(([, v]) => (v as { ok: boolean }).ok).map(([k]) => k).sort();
     expect(ok).toEqual(['center', 'centerBox', 'discoveryPoints', 'discoveryPresets', 'slotCreate', 'vehicleBox']);
-    expect(body.supported.calibration.reason).toMatch(/네이티브 이미지 처리/);
-    expect(body.supported.plateHoming.reason).toMatch(/네이티브 이미지 처리/);
+    // **두 사유는 종류가 다르다.** 캘리브레이션은 이 *호스트*에 없는 것(고칠 수 있다),
+    // 호밍은 이 *코드*에 없는 것(고칠 수 없다). 뭉개면 운영자가 ffmpeg 를 깔아 놓고
+    // 호밍이 왜 안 되냐고 묻게 된다.
+    expect(body.supported.calibration.reason).toMatch(/ffmpeg/);
+    expect(body.supported.plateHoming.reason).toMatch(/아직 만들지 않았습니다/);
   });
 
   it('실측 화각표가 없으면 박스 줌이 꺼지고 무엇을 채워야 하는지 말한다', async () => {
@@ -305,7 +313,10 @@ describe('차량 3D 육면체 — /api/core/vehicle-box', () => {
 
   it('사이드카 미설정이면 status 는 configured:false, detect 는 501 이다', async () => {
     await start({ intrinsics: true });
-    expect((await api('/api/core/vehicle-box/status')).body).toEqual({ configured: false, ready: false });
+    // 상태에도 **무엇을 채워야 하는지**가 실린다 — 꺼져 있다는 사실만으로는 운영자가
+    // 손쓸 수 없고, detect 를 눌러 501 을 받아 본 뒤에야 알게 되는 것은 늦다.
+    expect((await api('/api/core/vehicle-box/status')).body)
+      .toMatchObject({ configured: false, ready: false, reason: expect.stringContaining('object3d.baseUrl') });
     const { status, body } = await api('/api/core/vehicle-box', { method: 'POST' });
     expect(status).toBe(501);
     expect(body.error).toMatch(/object3d\.baseUrl/);

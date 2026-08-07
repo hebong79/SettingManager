@@ -1,12 +1,12 @@
 import type { CenterPoint } from '../../devices/cameraDriver.js';
 import { waitForSettle, type SettleOptions } from '../../devices/waitForSettle.js';
 import { clampPtz, toView, type PtzRaw } from '../../domain/ptz.js';
-import { pixelToPtzDelta } from '../../vendor/baro-profile/index.mjs';
-import type { CameraConfig } from '../../config/types.js';
-import type { Object3dClient } from '../../detectors/object3dClient.js';
 import type { StoredPtz } from '../../store/discoveryStore.js';
 import type { DiscoveryDbStore } from '../../db/discoveryDbStore.js';
 import type { SpotDbStore } from '../../db/spotDbStore.js';
+import type { CalibrationComponent } from '../../calibration/calibrationComponent.js';
+import { CenteringComponent } from '../../centering/centeringComponent.js';
+import { VehicleBoxComponent } from '../../vehiclebox/vehicleBoxComponent.js';
 import {
   CoreBusyError,
   CoreNotFoundError,
@@ -16,42 +16,44 @@ import {
   type CenterResult,
   type CoreCapabilities,
   type CoreCapabilityName,
+  type CoreCapabilityState,
   type CoreContext,
   type CoreProvider,
   type DiscoveryPointPort,
   type DiscoveryPresetPort,
   type JobPort,
+  type JobStatus,
   type ParkingSlotPort,
   type PlateHomingStartOptions,
   type VehicleBoxPort,
 } from '../coreProvider.js';
 import { CameraLeaseError, CameraLeaseRegistry } from './cameraLease.js';
-import { hfovAt, zoomPosForHfov } from './zoomTable.js';
 
 /**
  * SettingManager 자체 코어 구현 — 구성도의 **Bridge Backend-Core**.
  *
- * **backend-core 를 호출하지 않는다** — 선택된 카메라의 드라이버와 자기 저장소만 쓴다.
- * 아직 못 하는 것은 조용히 원격으로 흘려보내지 않고 **501 확정 답**으로 거절한다.
- * 무엇을 할 수 있는지는 `capabilities()` 가 미리 말하므로 화면은 못 하는 버튼을 비활성으로 그린다.
+ * **backend-core 를 호출하지 않는다.** 아직 못 하는 것은 조용히 원격으로 흘려보내지 않고
+ * **501 확정 답**으로 거절한다.
  *
- * 광학·조준 기하는 **다시 구현하지 않고 벤더링해 쓴다**(`src/vendor/baro-profile/`).
- * 실기 112샘플로 실측해 고정된 계산을 베껴 쓰면 두 벌이 되어 반드시 갈라진다.
+ * ## 이 파일은 이제 조립만 한다 (2026-08-07)
  *
- * 지금 할 수 있는 것 / 없는 것
- *   ✅ 센터링 · 박스 줌 · 탐색 프리셋/점 · 주차면(스팟) · 차량 3D 육면체
- *   ❌ 캘리브레이션 · 번호판 호밍 — **이미지를 만지는 일**(ZNCC 프레임 매칭·크롭)이 필요하고,
- *      그것은 네이티브 이미지 라이브러리(sharp) 없이는 서지 않는다. 이 서비스는 런타임
- *      의존성 0 을 유지하므로 그 둘은 backend-core 경유로 남긴다.
+ * 캘리브레이션·센터라이징·차량 3D 육면체는 각각 **독립 컴포넌트**로 나갔다
+ * (`src/calibration/` · `src/centering/` · `src/vehiclebox/`). 셋은 서로를 import 하지 않고,
+ * 여기는 그것들을 코어 포트 모양으로 **옮겨 담기만** 한다. 그래서 이 파일에는 기하도 없고
+ * 이미지 처리도 없다 — 그런 것이 다시 여기 들어오면 컴포넌트 경계가 무너진 것이다.
+ *
+ * 여기 남은 것: 탐색 프리셋·점 · 주차면(스팟) · 카메라 점유 · 능력 취합.
+ *
+ * ## 아직 못 하는 것
+ * ❌ 번호판 호밍 — 크롭·가시성 판정이 필요하고 아직 만들지 않았다. backend-core 경유로 남는다.
  */
 
 const NOT_YET = (capability: CoreCapabilityName, what: string): never => {
-  throw new CoreUnsupportedError(capability, `브리지 코어는 아직 ${what}을(를) 지원하지 않습니다 — 옵션에서 코어 구현을 backend-core 로 바꾸면 쓸 수 있습니다`);
+  throw new CoreUnsupportedError(
+    capability,
+    `브리지 코어는 아직 ${what}을(를) 지원하지 않습니다 — 옵션에서 코어 구현을 backend-core 로 바꾸면 쓸 수 있습니다`,
+  );
 };
-
-/** 실측 화각표가 없으면 기하 계산을 **켜지 않는다**. 내장 표로 대신하면 조용히 빗나간다. */
-const NO_INTRINSICS = (camera: CameraConfig): string =>
-  `기기 ${camera.id} 의 실측 줌→화각 표가 없습니다 — config.json 의 cameras[].intrinsics.zoomHfov 를 채우거나 코어 구현을 backend-core 로 바꾸십시오`;
 
 export interface BridgeCoreProviderOptions {
   leases?: CameraLeaseRegistry;
@@ -59,105 +61,122 @@ export interface BridgeCoreProviderOptions {
   /** 카메라별 저장소. 기기를 바꾸면 다른 파일이 열려야 하므로 팩토리로 받는다. */
   discoveryStoreFor?: (cameraId: string) => DiscoveryDbStore;
   spotStoreFor?: (cameraId: string) => SpotDbStore;
-  /** 3D 차량 박스 사이드카. 설정되지 않았으면 `undefined` 이고 능력이 꺼진다. */
-  object3d?: Object3dClient;
+  /** 세 독립 컴포넌트. 주지 않으면 그 능력이 사유와 함께 꺼진다 — 지어내지 않는다. */
+  centering?: CenteringComponent;
+  calibration?: CalibrationComponent;
+  vehicleBox?: VehicleBoxComponent;
 }
 
 export class BridgeCoreProvider implements CoreProvider {
   readonly name = 'bridge' as const;
   private readonly leases: CameraLeaseRegistry;
   private readonly settleOptions?: SettleOptions;
-  private readonly options: BridgeCoreProviderOptions;
 
   constructor(options: BridgeCoreProviderOptions = {}) {
     this.leases = options.leases ?? new CameraLeaseRegistry();
     this.settleOptions = options.settleOptions;
-    this.options = options;
+    this.options = {
+      ...options,
+      // 센터라이징과 차량 3D 는 **기본으로 세운다.** 둘 다 생성 비용이 없고(순수 계산 /
+      // 주소 없으면 꺼진 상태), 배선을 잊었을 때 조용히 능력이 사라지는 것보다 낫다.
+      // 캘리브레이션은 기본을 두지 않는다 — ffmpeg 프로브·잡 기록처럼 **수명이 있는 것**을
+      // 들고 있어서, 요청마다 새로 만들어지면 진행 중인 스윕이 폴링마다 사라진다.
+      centering: options.centering ?? new CenteringComponent({ settleOptions: options.settleOptions }),
+      vehicleBox: options.vehicleBox ?? new VehicleBoxComponent(),
+    };
   }
 
+  private readonly options: BridgeCoreProviderOptions;
+
   async capabilities(ctx: CoreContext): Promise<CoreCapabilities> {
-    const canCenter = typeof ctx.driver.centerPoint === 'function';
-    const intrinsics = ctx.camera.intrinsics;
-    const boxReason = intrinsics ? undefined : NO_INTRINSICS(ctx.camera);
+    const centering = this.options.centering;
+    const calibration = this.options.calibration;
     return {
       provider: this.name,
       cameraId: ctx.camera.id,
-      busy: this.leases.isBusy(ctx.camera.id),
+      // 캘리브레이션이 도는 중에도 busy 다 — 그 잡은 카메라를 20분간 통째로 점유한다.
+      busy: this.leases.isBusy(ctx.camera.id) || Boolean(calibration?.isBusy(ctx.camera.id)),
       supported: {
-        center: canCenter ? { ok: true } : { ok: false, reason: '이 카메라 드라이버는 픽셀 센터링을 지원하지 않습니다' },
-        // 박스 줌은 하드웨어 기능이 아니라 **계산**이다 — 실측 화각표만 있으면 어느 기기에서든 선다.
-        centerBox: boxReason ? { ok: false, reason: boxReason } : { ok: true },
+        center: wired(centering, '센터라이징 컴포넌트') ?? asState(centering!.centerSupport(ctx.camera, ctx.driver)),
+        centerBox: wired(centering, '센터라이징 컴포넌트') ?? asState(centering!.boxSupport(ctx.camera)),
         discoveryPresets: this.options.discoveryStoreFor ? { ok: true } : { ok: false, reason: '탐색 프리셋 저장소가 배선되지 않았습니다' },
         discoveryPoints: this.options.discoveryStoreFor ? { ok: true } : { ok: false, reason: '탐색 점 저장소가 배선되지 않았습니다' },
-        calibration: { ok: false, reason: '브리지 코어는 캘리브레이션을 지원하지 않습니다 — 프레임 매칭(ZNCC)에 네이티브 이미지 처리가 필요합니다' },
-        plateHoming: { ok: false, reason: '브리지 코어는 번호판 호밍을 지원하지 않습니다 — 크롭·가시성 판정에 네이티브 이미지 처리가 필요합니다' },
-        vehicleBox: this.options.object3d
-          ? { ok: true }
-          : { ok: false, reason: '3D 차량 박스 사이드카가 설정되지 않았습니다 — config.json 의 object3d.baseUrl 을 채우십시오' },
+        calibration: wired(calibration, '캘리브레이션 컴포넌트') ?? asState(await calibration!.support(ctx.camera, ctx.driver)),
+        plateHoming: { ok: false, reason: '브리지 코어는 번호판 호밍을 지원하지 않습니다 — 크롭·가시성 판정에 이미지 처리가 필요하고 아직 만들지 않았습니다' },
+        vehicleBox: wired(this.options.vehicleBox, '차량 3D 육면체 컴포넌트') ?? asState(this.options.vehicleBox!.support()),
         slotCreate: this.options.spotStoreFor ? { ok: true } : { ok: false, reason: '주차면 저장소가 배선되지 않았습니다' },
       },
     };
   }
 
-  /** 클릭한 점을 화면 중앙으로. 드라이버가 직접 하고, 멈출 때까지 기다린 좌표를 답한다. */
+  // --- 센터라이징 (컴포넌트에 위임) ---------------------------------------------
+
   async center(ctx: CoreContext, point: CenterPoint): Promise<CenterResult> {
-    const centerPoint = ctx.driver.centerPoint;
-    if (!centerPoint) throw new CoreUnsupportedError('center', '이 카메라 드라이버는 픽셀 센터링을 지원하지 않습니다');
-
+    const centering = this.require(this.options.centering, 'center', '센터라이징 컴포넌트');
     const release = this.acquire(ctx.camera.id);
     try {
-      await centerPoint.call(ctx.driver, point);
-      const settle = await waitForSettle(ctx.driver, this.settleOptions);
-      return { cameraId: ctx.camera.id, point, ptz: toView(settle.ptz), settled: settle.settled };
+      // 펼쳐 담는다 — `CenterResult` 는 구현이 더 실어 보낸 것을 잃지 않고 통과시키는 계약이라
+      // 인덱스 시그니처를 갖고, 컴포넌트의 좁은 타입은 그대로는 들어맞지 않는다.
+      return { ...(await centering.center(ctx.camera, ctx.driver, point)) };
     } finally {
       release();
     }
   }
 
-  /**
-   * 드래그한 박스가 화면을 채우도록 조준 + 줌인. **순수 계산이다** — 하드웨어 박스줌을 쓰지 않는다.
-   *
-   *   ① 박스 중앙을 화면 중앙으로  →  `pixelToPtzDelta`(짐벌 기하, 벤더링)
-   *   ② 박스가 프레임을 채울 화각  →  현재 화각 × max(박스폭/프레임폭, 박스높이/프레임높이)
-   *   ③ 그 화각의 줌 눈금          →  실측 표 역보간
-   *
-   * ②에서 가로·세로 중 **큰 쪽**을 쓰는 이유는 작은 쪽을 쓰면 박스가 화면 밖으로 잘리기 때문이다.
-   */
   async centerBox(ctx: CoreContext, box: CenterBox): Promise<CenterResult> {
-    const intrinsics = ctx.camera.intrinsics;
-    if (!intrinsics) throw new CoreUnsupportedError('centerBox', NO_INTRINSICS(ctx.camera));
-
-    const width = Math.abs(box.endX - box.startX);
-    const height = Math.abs(box.endY - box.startY);
-    if (width < 1 || height < 1) {
-      throw new CoreUnsupportedError('centerBox', '박스가 너무 작습니다 — 가로·세로가 각각 1픽셀 이상이어야 합니다');
-    }
-
+    const centering = this.require(this.options.centering, 'centerBox', '센터라이징 컴포넌트');
     const release = this.acquire(ctx.camera.id);
     try {
-      const current = await ctx.driver.getPtz();
-      const hfov = hfovAt(intrinsics, current.zoom);
-      const delta = pixelToPtzDelta({
-        x: (box.startX + box.endX) / 2,
-        y: (box.startY + box.endY) / 2,
-        hfovDeg: hfov,
-        tiltDeg: current.tilt / 100,
-        frameWidth: FRAME.width,
-        frameHeight: FRAME.height,
-      });
-      const target = clampPtz({
-        pan: current.pan + delta.panDelta,
-        tilt: current.tilt + delta.tiltDelta,
-        zoom: zoomPosForHfov(intrinsics, hfov * Math.max(width / FRAME.width, height / FRAME.height)),
-      });
-
-      await ctx.driver.goPtz(target);
-      const settle = await waitForSettle(ctx.driver, this.settleOptions);
-      return { cameraId: ctx.camera.id, box, ptz: toView(settle.ptz), settled: settle.settled, target };
+      return { ...(await centering.centerBox(ctx.camera, ctx.driver, box)) };
     } finally {
       release();
     }
   }
+
+  // --- 캘리브레이션 (컴포넌트에 위임) -------------------------------------------
+  //
+  // **점유를 여기서 잡지 않는다.** 잡은 20분간 비동기로 돌므로 요청 하나의 수명과 어긋난다 —
+  // `try/finally` 로 감싸면 start 가 돌아오는 순간 점유가 풀린다. 대신 잡 자신이 자기 상태로
+  // busy 를 답하고(`isBusy`), `capabilities()` 가 그것을 합쳐 보고한다.
+
+  readonly calibration: JobPort<CalibrationStartOptions> = {
+    start: async (ctx, options) => {
+      const calibration = this.require(this.options.calibration, 'calibration', '캘리브레이션 컴포넌트');
+      const support = await calibration.support(ctx.camera, ctx.driver);
+      if (!support.ok) throw new CoreUnsupportedError('calibration', support.reason);
+      if (this.leases.isBusy(ctx.camera.id)) throw new CoreBusyError(ctx.camera.id);
+      return (await calibration.start(ctx.camera, ctx.driver, options.mode)) as JobStatus;
+    },
+    // 상태·중지는 **미지원 기기에서도 답한다** — "지금 idle 이다"를 읽는 것은 거짓말이 아니고,
+    // 여기서 501 을 내면 화면이 잡 패널을 아예 못 그린다(적합성 스위트의 판정 대상은 행위다).
+    status: async (ctx) => (this.options.calibration?.status(ctx.camera.id) ?? { state: 'idle' }) as JobStatus,
+    stop: async (ctx) => (this.options.calibration?.stop(ctx.camera.id) ?? { state: 'idle' }) as JobStatus,
+  };
+
+  readonly plateHoming: JobPort<PlateHomingStartOptions> = {
+    start: async () => NOT_YET('plateHoming', '번호판 호밍'),
+    status: async () => NOT_YET('plateHoming', '번호판 호밍'),
+    stop: async () => NOT_YET('plateHoming', '번호판 호밍'),
+  };
+
+  // --- 차량 3D 육면체 (컴포넌트에 위임) -----------------------------------------
+  //
+  // **카메라를 움직이지 않으므로 점유하지 않는다** — 상류도 같다: 잡이 도는 중에도 막히지 않는다.
+
+  readonly vehicleBox: VehicleBoxPort = {
+    status: async (ctx) => {
+      const component = this.options.vehicleBox;
+      if (!component) return { configured: false, ready: false, cameraId: ctx.camera.id };
+      return component.status(ctx.camera);
+    },
+    detect: async (ctx) => {
+      const component = this.require(this.options.vehicleBox, 'vehicleBox', '차량 3D 육면체 컴포넌트');
+      const result = await component.detect(ctx.camera, ctx.driver);
+      return { ...result, detections: result.detections as Array<Record<string, unknown>> };
+    },
+  };
+
+  // --- 탐색 프리셋·점 -----------------------------------------------------------
 
   readonly discoveryPresets: DiscoveryPresetPort = {
     list: async (ctx) => ({ presets: await this.discovery(ctx, 'discoveryPresets').listPresets(), busy: this.leases.isBusy(ctx.camera.id) }),
@@ -215,38 +234,6 @@ export class BridgeCoreProvider implements CoreProvider {
     },
   };
 
-  /**
-   * 차량 3D 육면체 — 사이드카 소비. **카메라를 움직이지 않으므로 점유하지 않는다**
-   * (상류도 같다: 잡이 도는 중에도 이 경로는 막히지 않는다).
-   */
-  readonly vehicleBox: VehicleBoxPort = {
-    status: async (ctx) => {
-      const client = this.options.object3d;
-      if (!client) return { configured: false, ready: false };
-      return { ...(await client.ready()), cameraId: ctx.camera.id, model: client.model };
-    },
-    detect: async (ctx) => {
-      const client = this.options.object3d;
-      if (!client) {
-        throw new CoreUnsupportedError('vehicleBox', '3D 차량 박스 사이드카가 설정되지 않았습니다 — config.json 의 object3d.baseUrl 을 채우십시오');
-      }
-      const image = await ctx.driver.getSnapshot();
-      const raw = await client.detect(image, ctx.camera.id);
-      const detections = Array.isArray(raw.detections) ? (raw.detections as Record<string, unknown>[]) : [];
-      return {
-        // 봉투는 우리 어휘, detections·calibration 은 사이드카 어휘 그대로(상류와 같은 경계).
-        cameraId: ctx.camera.id,
-        capturedAt: new Date().toISOString(),
-        count: detections.length,
-        detections,
-        calibration: raw.calibration,
-        model: (raw.model_id as string | undefined) ?? client.model,
-        latencyMs: raw.total_ms ?? raw.latency_ms ?? null,
-        source: 'object3d',
-      };
-    },
-  };
-
   readonly parkingSlots: ParkingSlotPort = {
     list: async (ctx) => {
       const data = await this.spots(ctx).load();
@@ -276,17 +263,7 @@ export class BridgeCoreProvider implements CoreProvider {
     },
   };
 
-  readonly calibration: JobPort<CalibrationStartOptions> = {
-    start: async () => NOT_YET('calibration', '캘리브레이션'),
-    status: async () => NOT_YET('calibration', '캘리브레이션'),
-    stop: async () => NOT_YET('calibration', '캘리브레이션'),
-  };
-
-  readonly plateHoming: JobPort<PlateHomingStartOptions> = {
-    start: async () => NOT_YET('plateHoming', '번호판 호밍'),
-    status: async () => NOT_YET('plateHoming', '번호판 호밍'),
-    stop: async () => NOT_YET('plateHoming', '번호판 호밍'),
-  };
+  // --- 내부 ---------------------------------------------------------------------
 
   /**
    * `capability` 를 받는 이유: 오류에 **부른 쪽의 능력 이름**이 실려야 한다.
@@ -305,8 +282,16 @@ export class BridgeCoreProvider implements CoreProvider {
     return make(ctx.camera.id);
   }
 
+  private require<T>(component: T | undefined, capability: CoreCapabilityName, what: string): T {
+    if (!component) throw new CoreUnsupportedError(capability, `${what}가 배선되지 않았습니다`);
+    return component;
+  }
+
   /** 같은 카메라의 동시 작업만 막는다. 다른 카메라는 서로 간섭하지 않는다. */
   private acquire(cameraId: string): () => void {
+    if (this.options.calibration?.isBusy(cameraId)) {
+      throw new CoreBusyError(cameraId, `카메라 ${cameraId} 에서 캘리브레이션이 진행 중입니다`);
+    }
     try {
       return this.leases.acquire(cameraId);
     } catch (error) {
@@ -316,8 +301,14 @@ export class BridgeCoreProvider implements CoreProvider {
   }
 }
 
-/** 픽셀 좌표의 기준 프레임. 계약 좌표와 같은 Hucoms 논리 프레임이다. */
-const FRAME = { width: 1920, height: 1080 };
+/** 컴포넌트가 아예 없으면 그 자체가 사유다. 있으면 `undefined` 를 돌려 다음 판단으로 넘긴다. */
+function wired(component: unknown, what: string): CoreCapabilityState | undefined {
+  return component ? undefined : { ok: false, reason: `${what}가 배선되지 않았습니다` };
+}
+
+function asState(support: { ok: true } | { ok: false; reason: string }): CoreCapabilityState {
+  return support.ok ? { ok: true } : { ok: false, reason: support.reason };
+}
 
 /** 저장 형식(backend-core) → 계약 좌표. 필드명이 다르므로 옮기는 자리를 한 곳에 둔다. */
 function fromStoredPtz(stored: unknown): PtzRaw {

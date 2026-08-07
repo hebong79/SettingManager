@@ -62,6 +62,27 @@ export const api = {
 
   slots: (cameraId) => request('GET', `/api/slots?cameraId=${encodeURIComponent(cameraId)}`),
 
+  // --- 캘리브레이션 ------------------------------------------------------
+  // 시작은 **카메라를 수십 분 점유한다.** 화면이 그 사실을 먼저 말하고 확인을 받는다.
+  calibrationStart: (cameraId, mode) => request('POST', '/api/core/calibration/start', { cameraId, mode }),
+  calibrationStatus: (cameraId) => request('GET', `/api/core/calibration/status?cameraId=${encodeURIComponent(cameraId)}`),
+  calibrationStop: (cameraId) => request('POST', '/api/core/calibration/stop', { cameraId }),
+  /** 발행은 별도 동작이다 — 게이트에 걸렸을 때 사람이 「그래도 발행」을 고를 여지가 있어야 한다. */
+  calibrationMint: (cameraId, options = {}) => request('POST', '/api/core/calibration/mint', { cameraId, ...options }),
+
+  // --- 카메라 프로파일 ---------------------------------------------------
+  profile: (cameraId) => request('GET', `/api/profiles/camera/${encodeURIComponent(cameraId)}`),
+  profileAt: (cameraId, revision) => request('GET', `/api/profiles/camera/${encodeURIComponent(cameraId)}/@${revision}`),
+  profileApply: (cameraId, revision) => request('POST', `/api/profiles/camera/${encodeURIComponent(cameraId)}/apply`, revision === undefined ? {} : { revision }),
+  profileImport: (cameraId, body) => request('POST', `/api/profiles/camera/${encodeURIComponent(cameraId)}`, body),
+  profileCopy: (cameraId, body) => request('POST', `/api/profiles/camera/${encodeURIComponent(cameraId)}/copy`, body),
+
+  // --- 차량 3D 육면체 ----------------------------------------------------
+  // **카메라를 움직이지 않는다** — 그래서 확인 절차가 없다.
+  vehicleBoxStatus: (cameraId) => request('GET', `/api/core/vehicle-box/status?cameraId=${encodeURIComponent(cameraId)}`),
+  vehicleBoxDetect: (cameraId) => request('POST', '/api/core/vehicle-box', { cameraId }),
+  vehicleBoxHistory: (cameraId, limit = 20) => request('GET', `/api/core/vehicle-box/history?cameraId=${encodeURIComponent(cameraId)}&limit=${limit}`),
+
   settings: () => request('GET', '/api/settings'),
   saveSettings: (patch) => request('PUT', '/api/settings', patch),
 };

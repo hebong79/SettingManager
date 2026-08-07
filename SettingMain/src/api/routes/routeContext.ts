@@ -5,6 +5,7 @@ import { createDriver, findCamera } from '../../devices/driverFactory.js';
 import type { HucomsPresetClient } from '../../devices/hucoms/hucomsPresetClient.js';
 import type { SettleOptions } from '../../devices/waitForSettle.js';
 import type { ConfigStore } from '../../config/configStore.js';
+import type { ProfileStore } from '../../profiles/profileStore.js';
 import type { AppConfig, CameraConfig } from '../../config/types.js';
 import { clampPtz, type PtzRaw } from '../../domain/ptz.js';
 import type { DevicePresetRegistryStore } from '../../store/devicePresetRegistryStore.js';
@@ -29,6 +30,11 @@ export interface ServerDeps {
    * 주지 않으면 그 능력들이 꺼진 채로 뜬다 — 서버는 DB 없이도 기동한다.
    */
   db?: DatabaseSync;
+  /**
+   * 발행본 저장소. 주지 않으면 서버가 DB 를 물려 기본값을 만든다 —
+   * 테스트가 임시 폴더를 쓰기 위한 주입 지점이다(발행이 저장소 루트에 파일을 남긴다).
+   */
+  profiles?: ProfileStore;
 }
 
 export type DirectPresetClient =

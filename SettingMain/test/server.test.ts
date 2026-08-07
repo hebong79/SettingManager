@@ -556,10 +556,21 @@ describe('코어 구현 전환', () => {
     expect(requestedUrls.some((url) => url.includes('/api/discovery/presets'))).toBe(false);
   });
 
-  it('브리지 코어는 캘리브레이션을 501 로 거절한다 — 네이티브 이미지 처리가 필요하다', async () => {
+  /**
+   * 2026-08-07 이전에는 이 자리가 *"브리지 코어는 캘리브레이션을 501 로 거절한다"* 였다.
+   * 이제 브리지가 캘리브레이션을 **한다**(`src/calibration/`). 그래서 이 테스트가 지키는 것도
+   * 바뀌었다 — 막는 것이 아니라 **아무 때나 시작하지 않는 것**이다.
+   *
+   * verify 는 "설치된 보정이 이 카메라에 맞나"를 묻는 패스라 **보정이 루프 안에 있어야** 한다.
+   * 게인이 없는 기기에서 verify 를 돌리면 게인 1 로 도는 full 스윕이 되어, 20분을 쓰고
+   * "검증했다"는 거짓 결론을 낸다. 그래서 시작 전에 409 로 끊는다.
+   */
+  it('게인이 없는 기기의 verify 는 409 로 끊는다 — 검증할 보정이 없다', async () => {
     const { status, body } = await api('/api/core/calibration/start', { method: 'POST', body: JSON.stringify({ mode: 'verify' }) });
-    expect(status).toBe(501);
-    expect(body.error).toMatch(/브리지 코어/);
+    expect(status).toBe(409);
+    expect(body.error).toMatch(/설치된 센터링 게인이 없습니다/);
+    // 그리고 **backend-core 로 흘려보내지 않는다** — 브리지가 못 하는 일을 조용히 위임하면
+    // "지금 무엇이 돌고 있는가"에 답할 곳이 사라진다.
     expect(requestedUrls.some((url) => url.includes('/api/calibration/start'))).toBe(false);
   });
 

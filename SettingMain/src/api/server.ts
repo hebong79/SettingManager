@@ -5,9 +5,14 @@ import { DetectorError, DetectorUnsupportedError } from '../detectors/detectorTy
 import { DatabaseError } from '../db/database.js';
 import { ConfigError } from '../config/normalize.js';
 import { PresetError } from '../domain/preset.js';
+import { CalibrationError } from '../calibration/calibrationJob.js';
+import { SoftwareCenteringError } from '../centering/softwareCentering.js';
+import { ProfileError, ProfileStore } from '../profiles/profileStore.js';
+import { DbIntrinsicsSink } from '../profiles/dbIntrinsicsSink.js';
 import { HttpError, sendError } from './httpUtil.js';
-import { CameraLeaseRegistry } from '../core/providerFactory.js';
+import { CameraLeaseRegistry, createCoreComponents } from '../core/providerFactory.js';
 import { createCoreRoutes } from './routes/coreRoutes.js';
+import { createProfileRoutes } from './routes/profileRoutes.js';
 import { dbRoutes } from './routes/dbRoutes.js';
 import { detectorRoutes } from './routes/detectorRoutes.js';
 import { devicePresetRoutes } from './routes/devicePresetRoutes.js';
@@ -28,12 +33,31 @@ export type { ServerDeps } from './routes/routeContext.js';
 export function createServer(deps: ServerDeps): Server {
   // 카메라별 점유는 프로세스 수명 동안 유지돼야 하므로 서버당 하나만 만든다.
   const leases = new CameraLeaseRegistry();
-  const coreRoutes = createCoreRoutes({ leases, settleOptions: deps.settleOptions, fetchImpl: deps.fetchImpl, db: deps.db });
+
+  // 발행본 저장소. **런타임 적용본은 DB** 이고, DB 가 없으면 적용할 곳이 없으므로 발행도
+  // `apply:false` 로만 가능하다(그 경우 `ProfileStore` 가 501 + 사유로 거절한다).
+  const profiles = deps.profiles
+    ?? new ProfileStore({ sink: deps.db ? new DbIntrinsicsSink(deps.db, deps.configStore) : undefined });
+
+  // **세 컴포넌트는 프로세스당 하나다.** 요청마다 만들면 20분짜리 스윕 기록이 폴링마다 사라진다.
+  const components = createCoreComponents({
+    config: deps.configStore.get(),
+    profiles,
+    settleOptions: deps.settleOptions,
+    fetchImpl: deps.fetchImpl,
+    db: deps.db,
+  });
+
+  const coreRoutes = createCoreRoutes(
+    { leases, settleOptions: deps.settleOptions, fetchImpl: deps.fetchImpl, db: deps.db, components },
+    components.calibration,
+  );
 
   /** 순서가 계약이다 — 앞선 라우트가 false 를 돌려줘야 다음이 본다. */
   const handlers: RouteHandler[] = [
     healthRoutes,
     coreRoutes,
+    createProfileRoutes(profiles),
     settingsRoutes,
     dbRoutes,
     detectorRoutes,
@@ -75,6 +99,9 @@ function fail(res: ServerResponse, error: unknown): void {
   if (error instanceof CoreUnsupportedError) return sendError(res, error.statusCode, error.message);
   if (error instanceof CoreBusyError) return sendError(res, error.statusCode, error.message);
   if (error instanceof CoreNotFoundError) return sendError(res, error.statusCode, error.message);
+  if (error instanceof ProfileError) return sendError(res, error.statusCode, error.message);
+  if (error instanceof CalibrationError) return sendError(res, error.statusCode, error.message);
+  if (error instanceof SoftwareCenteringError) return sendError(res, error.statusCode, error.message);
   if (error instanceof DetectorUnsupportedError) return sendError(res, error.statusCode, error.message);
   if (error instanceof DetectorError) return sendError(res, error.statusCode, error.message);
   if (error instanceof DatabaseError) return sendError(res, error.statusCode, error.message);
