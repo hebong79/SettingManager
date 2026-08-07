@@ -6,6 +6,9 @@ import { DatabaseError } from '../db/database.js';
 import { ConfigError } from '../config/normalize.js';
 import { PresetError } from '../domain/preset.js';
 import { CalibrationError } from '../calibration/calibrationJob.js';
+import { HomeTraceError } from '../homing/homeTraceStore.js';
+import { PlateHomingError } from '../homing/plateHomingJob.js';
+import { PlateHomingUnsupported } from '../homing/plateHomingComponent.js';
 import { SoftwareCenteringError } from '../centering/softwareCentering.js';
 import { ProfileError, ProfileStore } from '../profiles/profileStore.js';
 import { DbIntrinsicsSink } from '../profiles/dbIntrinsicsSink.js';
@@ -101,6 +104,10 @@ function fail(res: ServerResponse, error: unknown): void {
   if (error instanceof CoreNotFoundError) return sendError(res, error.statusCode, error.message);
   if (error instanceof ProfileError) return sendError(res, error.statusCode, error.message);
   if (error instanceof CalibrationError) return sendError(res, error.statusCode, error.message);
+  if (error instanceof PlateHomingUnsupported) return sendError(res, error.statusCode, error.message);
+  if (error instanceof PlateHomingError) return sendError(res, error.statusCode, error.message);
+  // 경로 조작은 **403** 이다 — 404 로 뭉개면 "없다"와 "주면 안 된다"가 구별되지 않는다.
+  if (error instanceof HomeTraceError) return sendError(res, error.statusCode, error.message);
   if (error instanceof SoftwareCenteringError) return sendError(res, error.statusCode, error.message);
   if (error instanceof DetectorUnsupportedError) return sendError(res, error.statusCode, error.message);
   if (error instanceof DetectorError) return sendError(res, error.statusCode, error.message);

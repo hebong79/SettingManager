@@ -84,7 +84,7 @@ async function api(path: string, init?: RequestInit): Promise<{ status: number; 
   return { status: response.status, body: text ? JSON.parse(text) : {} };
 }
 
-async function start(options: { intrinsics?: boolean; object3d?: boolean } = {}): Promise<void> {
+async function start(options: { intrinsics?: boolean; object3d?: boolean; detectors?: boolean } = {}): Promise<void> {
   dir = await mkdtemp(join(tmpdir(), 'settingmanager-bridge-'));
   ptz = { pan: 12_000, tilt: 1_681, zoom: 0 };
   cgiCommands = [];
@@ -102,6 +102,11 @@ async function start(options: { intrinsics?: boolean; object3d?: boolean } = {})
       // **나머지 능력의 켜짐/꺼짐**이므로 없는 실행 파일을 가리켜 변수를 없앤다.
       streaming: { ffmpegPath: 'ffmpeg-does-not-exist-on-purpose' },
       ...(options.object3d ? { object3d: { baseUrl: 'http://127.0.0.1:9070' } } : {}),
+      // 호밍은 검출기 **둘 다**(LPD·VPD 세그)에 달려 있다. 기본은 꺼진 상태로 두고,
+      // 켜진 모습을 보려는 테스트만 명시적으로 채운다.
+      ...(options.detectors
+        ? { detectors: { lpd: { baseUrl: 'http://127.0.0.1:9082' }, vpd: { baseUrl: 'http://127.0.0.1:9081' } } }
+        : {}),
       activeCameraId: 'cam-a',
       cameras: [{
         id: 'cam-a', label: '리얼 1', kind: 'hucoms', controlUrl: 'http://10.0.0.1:80',
@@ -137,17 +142,39 @@ afterEach(async () => {
 });
 
 describe('브리지 능력 선언', () => {
-  it('실측 표와 사이드카가 다 있으면 6종이 켜진다 — 호밍은 미구현, 캘리브레이션은 ffmpeg 가 없어서 꺼진다', async () => {
+  it('실측 표와 사이드카가 다 있으면 6종이 켜진다 — 캘리브레이션은 ffmpeg, 호밍은 검출기가 없어서 꺼진다', async () => {
     await start({ intrinsics: true, object3d: true });
     const { body } = await api('/api/core/capabilities');
     expect(body.provider).toBe('bridge');
     const ok = Object.entries(body.supported).filter(([, v]) => (v as { ok: boolean }).ok).map(([k]) => k).sort();
     expect(ok).toEqual(['center', 'centerBox', 'discoveryPoints', 'discoveryPresets', 'slotCreate', 'vehicleBox']);
-    // **두 사유는 종류가 다르다.** 캘리브레이션은 이 *호스트*에 없는 것(고칠 수 있다),
-    // 호밍은 이 *코드*에 없는 것(고칠 수 없다). 뭉개면 운영자가 ffmpeg 를 깔아 놓고
-    // 호밍이 왜 안 되냐고 묻게 된다.
+    // **두 사유는 가리키는 곳이 다르다.** 하나는 이 호스트의 실행 파일이고 하나는
+    // 사이드카 주소다. 뭉개면 운영자가 ffmpeg 를 깔아 놓고 호밍이 왜 안 되냐고 묻게 된다.
     expect(body.supported.calibration.reason).toMatch(/ffmpeg/);
-    expect(body.supported.plateHoming.reason).toMatch(/아직 만들지 않았습니다/);
+    expect(body.supported.plateHoming.reason).toMatch(/detectors\.lpd\.baseUrl/);
+  });
+
+  /**
+   * 2026-08-07 이전에는 이 능력이 **코드에 없어서** 꺼져 있었다. 이제는 배선의 문제이고,
+   * 채우면 켜진다 — 그 차이가 운영자에게 보여야 한다.
+   */
+  it('검출기 둘을 다 채우면 호밍이 켜진다', async () => {
+    await start({ intrinsics: true, detectors: true });
+    const { body } = await api('/api/core/capabilities');
+    expect(body.supported.plateHoming).toEqual({ ok: true });
+  });
+
+  /**
+   * LPD 만 있으면 후보 고르기가 "가장 가까운 판"으로 퇴화해 고줌에서 옆차로 옮겨탄다 —
+   * 상류가 실제로 겪고 고친 결함이라 **반쪽 배선으로는 켜지 않는다.**
+   */
+  it('VPD 세그가 없으면 호밍을 켜지 않고 그 이유를 말한다', async () => {
+    await start({ intrinsics: true });
+    // LPD 만 채운 상태를 만들기 위해 detectors 를 반쪽만 주는 대신, 기본(둘 다 없음)에서
+    // 사유가 LPD 를 먼저 가리키는지만 본다 — 순서가 뒤집히면 운영자가 엉뚱한 것을 채운다.
+    const { body } = await api('/api/core/capabilities');
+    expect(body.supported.plateHoming.ok).toBe(false);
+    expect(body.supported.plateHoming.reason).toContain('번호판 검출기(LPD)');
   });
 
   it('실측 화각표가 없으면 박스 줌이 꺼지고 무엇을 채워야 하는지 말한다', async () => {
@@ -321,5 +348,50 @@ describe('차량 3D 육면체 — /api/core/vehicle-box', () => {
     expect(status).toBe(501);
     expect(body.error).toMatch(/object3d\.baseUrl/);
     expect(object3dCalls).toEqual([]);
+  });
+});
+
+/**
+ * 호밍 과정 다시보기 경로. **잡을 돌리지 않고** 라우트 자체의 규율만 본다 —
+ * 잡의 판단은 `plateHoming.test.ts` 가, 저장소는 `homeTraceStore.test.ts` 가 맡는다.
+ */
+describe('호밍 과정 다시보기 — /api/core/home-trace · home-frame', () => {
+  it('기록이 없어도 200 + 빈 스텝이다 — 아직 호밍하지 않은 점은 오류가 아니다', async () => {
+    await start({ intrinsics: true, detectors: true });
+    const { status, body } = await api('/api/core/discovery/presets/p-1/points/pt-1/home-trace');
+    expect(status).toBe(200);
+    expect(body.steps).toEqual([]);
+  });
+
+  it('없는 프레임은 404 — 조용히 빈 이미지를 내지 않는다', async () => {
+    await start({ intrinsics: true, detectors: true });
+    expect((await api('/api/core/home-frame/cam-a/p-1/pt-1/3')).status).toBe(404);
+  });
+
+  /**
+   * 경로 조각을 저장소에 그대로 넘기지 않는다.
+   *
+   * **`..` 은 이 검사에 닿지도 못한다** — WHATWG URL 정규화가 `..` 도 `%2E%2E` 도 점-세그먼트로
+   * 보고 먼저 지운다(둘 다 404 가 된다). 정규화를 통과해 실제로 라우트까지 오는 것은
+   * **인코딩된 슬래시**(`%2F`)이고, 이것만이 디코드 후 디렉터리를 하나 더 파고든다.
+   * 그래서 여기서 403 이 나와야 검사가 실제로 서 있는 것이다.
+   */
+  it('인코딩된 슬래시는 403 으로 막는다 — 디코드 후 경로가 한 칸 더 열린다', async () => {
+    await start({ intrinsics: true, detectors: true });
+    expect((await api('/api/core/home-frame/cam%2F..%2Fetc/p-1/pt-1/1')).status).toBe(403);
+    expect((await api('/api/core/home-frame/cam-a/p%2F..%2F..%2Fetc/pt-1/1')).status).toBe(403);
+  });
+
+  it('점-세그먼트는 URL 정규화가 먼저 먹어 라우트에 닿지 않는다 — 404', async () => {
+    await start({ intrinsics: true, detectors: true });
+    expect((await api('/api/core/home-frame/../p-1/pt-1/1')).status).toBe(404);
+  });
+
+  /** 이 둘은 카메라를 만지지 않는다 — 지난 호밍이 무엇을 봤는지는 언제나 볼 수 있어야 한다. */
+  it('다시보기는 카메라를 두드리지 않는다', async () => {
+    await start({ intrinsics: true, detectors: true });
+    const before = cgiCommands.length;
+    await api('/api/core/home-frame/cam-a/p-1/pt-1/1');
+    expect(cgiCommands).toHaveLength(before);
   });
 });

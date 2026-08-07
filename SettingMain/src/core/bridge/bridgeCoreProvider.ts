@@ -5,6 +5,7 @@ import type { StoredPtz } from '../../store/discoveryStore.js';
 import type { DiscoveryDbStore } from '../../db/discoveryDbStore.js';
 import type { SpotDbStore } from '../../db/spotDbStore.js';
 import type { CalibrationComponent } from '../../calibration/calibrationComponent.js';
+import type { PlateHomingComponent } from '../../homing/plateHomingComponent.js';
 import { CenteringComponent } from '../../centering/centeringComponent.js';
 import { VehicleBoxComponent } from '../../vehiclebox/vehicleBoxComponent.js';
 import {
@@ -42,18 +43,11 @@ import { CameraLeaseError, CameraLeaseRegistry } from './cameraLease.js';
  * 여기는 그것들을 코어 포트 모양으로 **옮겨 담기만** 한다. 그래서 이 파일에는 기하도 없고
  * 이미지 처리도 없다 — 그런 것이 다시 여기 들어오면 컴포넌트 경계가 무너진 것이다.
  *
- * 여기 남은 것: 탐색 프리셋·점 · 주차면(스팟) · 카메라 점유 · 능력 취합.
+ * 번호판 호밍도 2026-08-07 에 같은 모양으로 들어왔다(`src/homing/`) — 이제 브리지가
+ * **캘리브레이션·센터라이징·호밍 셋을 자기 것으로** 갖는다.
  *
- * ## 아직 못 하는 것
- * ❌ 번호판 호밍 — 크롭·가시성 판정이 필요하고 아직 만들지 않았다. backend-core 경유로 남는다.
+ * 여기 남은 것: 탐색 프리셋·점 · 주차면(스팟) · 카메라 점유 · 능력 취합.
  */
-
-const NOT_YET = (capability: CoreCapabilityName, what: string): never => {
-  throw new CoreUnsupportedError(
-    capability,
-    `브리지 코어는 아직 ${what}을(를) 지원하지 않습니다 — 옵션에서 코어 구현을 backend-core 로 바꾸면 쓸 수 있습니다`,
-  );
-};
 
 export interface BridgeCoreProviderOptions {
   leases?: CameraLeaseRegistry;
@@ -64,6 +58,7 @@ export interface BridgeCoreProviderOptions {
   /** 세 독립 컴포넌트. 주지 않으면 그 능력이 사유와 함께 꺼진다 — 지어내지 않는다. */
   centering?: CenteringComponent;
   calibration?: CalibrationComponent;
+  plateHoming?: PlateHomingComponent;
   vehicleBox?: VehicleBoxComponent;
 }
 
@@ -91,18 +86,23 @@ export class BridgeCoreProvider implements CoreProvider {
   async capabilities(ctx: CoreContext): Promise<CoreCapabilities> {
     const centering = this.options.centering;
     const calibration = this.options.calibration;
+    const homing = this.options.plateHoming;
     return {
       provider: this.name,
       cameraId: ctx.camera.id,
-      // 캘리브레이션이 도는 중에도 busy 다 — 그 잡은 카메라를 20분간 통째로 점유한다.
-      busy: this.leases.isBusy(ctx.camera.id) || Boolean(calibration?.isBusy(ctx.camera.id)),
+      // 잡이 도는 중에도 busy 다 — **둘 다 센다.** 캘리브레이션은 카메라를 20분간 통째로
+      // 점유하고, 호밍은 점마다 고배율로 돌린다. 하나라도 빠뜨리면 두 잡이 같은 카메라 위에서
+      // 동시에 돌고, 먼저 끝난 쪽의 `finally` 가 **다른 잡의 유언장을 지운다.**
+      busy: this.leases.isBusy(ctx.camera.id)
+        || Boolean(calibration?.isBusy(ctx.camera.id))
+        || Boolean(homing?.isBusy(ctx.camera.id)),
       supported: {
         center: wired(centering, '센터라이징 컴포넌트') ?? asState(centering!.centerSupport(ctx.camera, ctx.driver)),
         centerBox: wired(centering, '센터라이징 컴포넌트') ?? asState(centering!.boxSupport(ctx.camera)),
         discoveryPresets: this.options.discoveryStoreFor ? { ok: true } : { ok: false, reason: '탐색 프리셋 저장소가 배선되지 않았습니다' },
         discoveryPoints: this.options.discoveryStoreFor ? { ok: true } : { ok: false, reason: '탐색 점 저장소가 배선되지 않았습니다' },
         calibration: wired(calibration, '캘리브레이션 컴포넌트') ?? asState(await calibration!.support(ctx.camera, ctx.driver)),
-        plateHoming: { ok: false, reason: '브리지 코어는 번호판 호밍을 지원하지 않습니다 — 크롭·가시성 판정에 이미지 처리가 필요하고 아직 만들지 않았습니다' },
+        plateHoming: wired(homing, '번호판 호밍 컴포넌트') ?? asState(homing!.support(ctx.camera, ctx.driver)),
         vehicleBox: wired(this.options.vehicleBox, '차량 3D 육면체 컴포넌트') ?? asState(this.options.vehicleBox!.support()),
         slotCreate: this.options.spotStoreFor ? { ok: true } : { ok: false, reason: '주차면 저장소가 배선되지 않았습니다' },
       },
@@ -153,10 +153,24 @@ export class BridgeCoreProvider implements CoreProvider {
     stop: async (ctx) => (this.options.calibration?.stop(ctx.camera.id) ?? { state: 'idle' }) as JobStatus,
   };
 
+  // --- 번호판 호밍 (컴포넌트에 위임) --------------------------------------------
+  //
+  // 캘리브레이션과 **같은 규율**이다: 점유를 요청 수명에 묶지 않고, 잡 자신이 busy 를 답한다.
+  // 다만 여기서는 캘리브레이션이 도는지도 함께 본다 — 물리 카메라가 하나뿐이라 두 잡이
+  // 겹치면 서로의 이동을 상대의 측정으로 읽는다.
+
   readonly plateHoming: JobPort<PlateHomingStartOptions> = {
-    start: async () => NOT_YET('plateHoming', '번호판 호밍'),
-    status: async () => NOT_YET('plateHoming', '번호판 호밍'),
-    stop: async () => NOT_YET('plateHoming', '번호판 호밍'),
+    start: async (ctx, options) => {
+      const homing = this.require(this.options.plateHoming, 'plateHoming', '번호판 호밍 컴포넌트');
+      const support = homing.support(ctx.camera, ctx.driver);
+      if (!support.ok) throw new CoreUnsupportedError('plateHoming', support.reason);
+      if (this.leases.isBusy(ctx.camera.id)) throw new CoreBusyError(ctx.camera.id);
+      if (this.options.calibration?.isBusy(ctx.camera.id)) throw new CoreBusyError(ctx.camera.id);
+      return (await homing.start(ctx.camera, ctx.driver, options)) as unknown as JobStatus;
+    },
+    // 상태·중지는 **미지원 기기에서도 답한다** — 캘리브레이션과 같은 판단이다.
+    status: async (ctx) => (this.options.plateHoming?.status(ctx.camera.id) ?? { state: 'idle' }) as unknown as JobStatus,
+    stop: async (ctx) => (this.options.plateHoming?.stop(ctx.camera.id) ?? { state: 'idle' }) as unknown as JobStatus,
   };
 
   // --- 차량 3D 육면체 (컴포넌트에 위임) -----------------------------------------

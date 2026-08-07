@@ -86,6 +86,14 @@ export const ROUTE_CATALOG: readonly RouteCatalogEntry[] = [
   },
   { method: 'GET', path: '/api/core/plate-homing/status', title: '번호판 호밍 상태', mutating: false, movesCamera: false },
   { method: 'POST', path: '/api/core/plate-homing/stop', title: '번호판 호밍 중단', mutating: false, movesCamera: false },
+  {
+    method: 'GET', path: '/api/core/discovery/presets/:presetId/points/:pointId/home-trace',
+    title: '번호판 호밍 과정 (스텝별 숫자·상자)', mutating: false, movesCamera: false,
+    // 스텝 프레임(`/api/core/home-frame/...`)은 **일부러 싣지 않는다** — `image/jpeg` 라
+    // `/api/stream` 과 같은 이유로 MCP 대화에 실을 수 없다. 여기 응답의 `frameUrl` 이
+    // 그 주소를 알려 주므로, 필요하면 사람이 브라우저로 연다.
+    notes: '아직 호밍하지 않은 점도 200 + 빈 스텝이다(오류가 아니다).',
+  },
 
   // --- 카메라 프로파일 (발행본) --------------------------------------------------
   // 경로는 정규식으로 잡으므로 위 소스 스캔에 잡히지 않는다. 그래도 여기 적는다 —
