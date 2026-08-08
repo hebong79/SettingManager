@@ -114,9 +114,24 @@ describe('SIM_CATALOG', () => {
 
   /** 아직 그 서버에 없는 것들(실측 -32601). 생기면 카탈로그에 더한다. */
   it('언리얼에 아직 없는 계열은 담지 않는다', () => {
-    for (const missing of ['light.get', 'view.pick', 'file.list', 'cam.setLimits']) {
+    for (const missing of ['light.get', 'file.list', 'cam.setLimits']) {
       expect(findSimMethod(missing), missing).toBeUndefined();
     }
+  });
+
+  /** view.* 는 2026-08-08 언리얼에 신설됐다(ViewRpcModule) — 그래서 위 목록에서 빠졌다. */
+  it('메인 뷰 view.* 4개가 있다', () => {
+    for (const method of ['view.get', 'view.set', 'view.pick', 'view.lookAt']) {
+      expect(findSimMethod(method), method).toBeDefined();
+    }
+  });
+
+  /** 메인 뷰를 움직이는 것도 movesCamera 다 — 자동화 게이트가 걸릴 자리다. */
+  it('메인 뷰를 움직이는 것과 읽기만 하는 것이 갈려 있다', () => {
+    expect(findSimMethod('view.set')?.movesCamera).toBe(true);
+    expect(findSimMethod('view.lookAt')?.movesCamera).toBe(true);
+    expect(findSimMethod('view.get')?.movesCamera).toBe(false);
+    expect(findSimMethod('view.pick')?.movesCamera).toBe(false);
   });
 
   it('카메라를 움직이는 것과 아닌 것이 갈려 있다', () => {

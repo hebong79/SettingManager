@@ -1,8 +1,10 @@
 import { api, reportError, toast } from './api.js';
+import { streamPointFromPointer } from './streamCentering.js';
 import { createPresetPanel } from './simtoolPreset.js';
 import { createCarPanel } from './simtoolCar.js';
 import { createCamPanel } from './simtoolCam.js';
 import { createMeasurePanel } from './simtoolMeasure.js';
+import { createViewControl } from './simtoolViewControl.js';
 
 /**
  * 시뮬레이터 툴의 **껍데기**. 연결·탭·영상만 소유한다.
@@ -76,6 +78,17 @@ const ctx = {
   connected: () => Boolean(rpcUrl),
 };
 
+/**
+ * 메인 뷰 마우스 제어. **`view.*` 가 없는 시뮬레이터에서는 스스로 꺼진다**(`probe`) —
+ * 신설 전 버전에 붙어도 나머지 기능은 멀쩡해야 한다.
+ */
+const viewControl = createViewControl({
+  rpc,
+  toast,
+  reportError,
+  image: () => el('simStream'),
+});
+
 const panels = [
   { id: 'panelPreset', panel: createPresetPanel(ctx) },
   { id: 'panelCar', panel: createCarPanel(ctx) },
@@ -106,6 +119,8 @@ async function connect() {
     note.className = 'capability-note';
     note.textContent = 'RPC 주소가 비어 있습니다 — 주소를 넣고 「저장」을 누르세요.';
     setPanelsEnabled(false);
+    cameras = [];
+    updateClickNote();
     return;
   }
   tag.textContent = '확인 중';
@@ -131,6 +146,9 @@ async function connect() {
       : `포트 ${health.port} · 이 화면이 쓰는 메서드가 전부 등록돼 있습니다.`
         + (dead ? ` 그중 <strong>${dead}개는 등록만 되고 동작하지 않습니다</strong> — 해당 기능은 화면에서 빼거나 대체 경로를 씁니다.` : '');
     setPanelsEnabled(true);
+    // **카메라 목록보다 먼저** 묻는다 — 목록 로딩이 클릭·시점 안내를 다시 그리는데,
+    // 그때 `view.*` 가 있는지 이미 알고 있어야 안내가 한 번에 맞는 말을 한다.
+    await viewControl.probe();
     await loadCameras();
     await active?.panel?.onConnect?.();
   } catch (error) {
@@ -139,6 +157,9 @@ async function connect() {
     note.className = 'capability-note';
     note.textContent = error.message;
     setPanelsEnabled(false);
+    // 연결이 끊기면 자세를 물을 수 없다 — 클릭 안내가 「된다」고 남아 있으면 안 된다.
+    cameras = [];
+    updateClickNote();
   }
 }
 
@@ -158,7 +179,7 @@ const OFFLINE_OK = new Set([
   // 차량 배치
   'carNew', 'carOpen', 'carOpenInput', 'carSave', 'carAdd', 'carUpdate', 'carDelete', 'carList',
   'carPrefab', 'carType', 'carPresetId', 'carCount', 'carSpacing', 'carVertical',
-  'carX', 'carY', 'carSelId', 'carSelPreset', 'carSelFace', 'carSelRotY', 'carFront', 'carBack',
+  'carX', 'carY', 'carZ', 'carSelId', 'carSelPreset', 'carSelFace', 'carSelRotY', 'carFront', 'carBack',
   // 카메라 컨트롤 — 파일 쪽만
   'kNew', 'kOpen', 'kOpenInput', 'kSave', 'kAdd', 'kUpdate', 'kDelete', 'kList',
   'kName', 'kCamId', 'kPresetId', 'kPosX', 'kPosY', 'kPosZ', 'kPan', 'kTilt', 'kZoom',
@@ -193,6 +214,7 @@ async function loadCameras() {
     if (previous && cameras.some((camera) => String(camera.camId) === previous)) select.value = previous;
   }
   await showStreamSlots();
+  updateClickNote();
   for (const entry of panels) entry.panel?.onCameras?.(cameras);
 }
 
@@ -215,6 +237,7 @@ async function loadStreamCameras() {
   const wanted = previous || (streamCameras.some((c) => c.id === MAIN_CAMERA_ID) ? MAIN_CAMERA_ID : streamCameras[0]?.id);
   if (wanted) select.value = wanted;
   el('simStreamStart').disabled = streaming || !select.value;
+  updateClickNote();
 }
 
 /**
@@ -269,6 +292,177 @@ function stopStream() {
   el('simStreamStop').disabled = true;
 }
 
+// --- 영상 클릭 -------------------------------------------------------------
+
+/**
+ * 지금 보고 있는 영상이 **시뮬레이터의 어느 카메라인가**.
+ *
+ * 클릭을 월드 좌표로 바꾸려면 그 영상을 찍는 카메라의 위치·pan·tilt·zoom 을 알아야 하는데,
+ * 그것을 알려주는 것은 `cam.get` 뿐이고 그것은 **PTZ 카메라만** 안다.
+ *
+ * **메인 카메라(`simulator-99`, 스트림 13600)는 자세를 알 수 없다** — RPC 82개 어디에도
+ * 메인 뷰의 위치나 방향을 주는 것이 없다. 그래서 메인 영상 위에서는 클릭이 성립하지 않는다.
+ * 여기서 `null` 을 돌려 화면이 그 사실을 말하게 한다 — 대충 찍어서 엉뚱한 자리에 차를
+ * 놓는 것보다 낫다.
+ *
+ * 짝은 **스트림 포트로** 맞춘다(`cam.list` 가 `streamPort` 를 준다). `13600+camId` 라는
+ * 규칙을 여기서 다시 계산하면 시뮬레이터가 basePort 를 바꾸는 날 조용히 어긋난다.
+ */
+function projectionCamId() {
+  const port = streamPort();
+  if (!port) return null;
+  return cameras.find((camera) => camera.streamPort === port)?.camId ?? null;
+}
+
+/** 지금 고른 영상 소스가 나가는 포트. 두 판정(메인 뷰인가 / 어느 PTZ 인가)이 함께 쓴다. */
+function streamPort() {
+  const source = streamCameras.find((camera) => camera.id === el('simStreamCam').value);
+  if (!source?.streamUrl) return 0;
+  try { return Number(new URL(source.streamUrl).port) || 0; } catch { return 0; }
+}
+
+/**
+ * 지금 보고 있는 것이 **메인 뷰(자유 시점)** 인가.
+ *
+ * 포트는 **시뮬레이터가 알려준 것**(`view.get.streamPort`)과 맞춘다 — `13600` 이라는 숫자를
+ * 여기 적어 두면 언리얼이 basePort 를 바꾸는 날 조용히 어긋난다. `cam.list.streamPort` 로
+ * PTZ 를 맞추는 것과 같은 규율이다.
+ */
+function isMainView() {
+  const port = streamPort();
+  return port > 0 && port === viewControl.mainStreamPort();
+}
+
+/** 클릭이 되는 상태인지, 안 되면 왜 안 되는지 한 줄로 말한다. */
+function updateClickNote() {
+  const mode = el('simClickMode').value;
+  const note = el('simClickNote');
+  const main = isMainView();
+  const camId = projectionCamId();
+  if (mode === 'off') {
+    note.className = 'hint';
+    note.textContent = '영상 클릭을 쓰지 않습니다.';
+  } else if (main) {
+    // 메인 뷰는 **언리얼이 직접 맞힌다**(라인트레이스) — 지면 평면을 가정하지 않으므로
+    // 경사·구조물 위도 그대로 찍힌다. 그래서 「지면 높이 z」가 필요 없다.
+    note.className = 'hint ready';
+    note.textContent = mode === 'select'
+      ? '영상 위의 차량을 왼쪽 클릭하면 「차량 배치」 목록에서 그 차를 고릅니다 (메인 뷰 — 언리얼이 직접 맞힙니다).'
+      : '영상을 왼쪽 클릭하면 그 자리에 차량을 추가합니다 (메인 뷰 — 실제 지형에 맞으므로 「지면 높이 z」를 쓰지 않습니다).';
+  } else if (!rpcUrl || !cameras.length) {
+    note.className = 'hint warn';
+    note.textContent = '시뮬레이터에 연결돼야 영상 클릭을 쓸 수 있습니다 — 카메라 자세를 물어야 하기 때문입니다.';
+  } else if (camId === null) {
+    note.className = 'hint warn';
+    note.textContent = '지금 영상 소스는 카메라 자세를 알 수 없어 클릭이 되지 않습니다.'
+      + ' PTZ 카메라 영상(13601 이상)이나 메인 뷰를 고르세요.';
+  } else {
+    note.className = 'hint ready';
+    note.textContent = mode === 'select'
+      ? `영상 위의 차량을 왼쪽 클릭하면 「차량 배치」 목록에서 그 차를 고릅니다 (카메라 #${camId} 기준).`
+      : `영상의 빈 자리를 왼쪽 클릭하면 그 지면 좌표로 차량을 추가합니다 (카메라 #${camId} 기준).`;
+  }
+  // 메인 뷰는 실제 지형에 맞으므로 평면 높이를 받지 않는다.
+  el('simGroundZ').disabled = mode !== 'place' || main;
+  updateViewNote();
+}
+
+/** 메인 뷰 마우스 제어가 되는 상태인지 한 줄로 말한다. */
+function updateViewNote() {
+  const note = el('simViewNote');
+  const off = el('simClickMode').value === 'off';
+  if (!isMainView()) {
+    note.className = 'hint';
+    note.textContent = '마우스로 시점을 돌리는 것은 메인 뷰에서만 됩니다 — PTZ 카메라는 「카메라 컨트롤」 탭에서 움직입니다.';
+  } else if (!viewControl.isAvailable()) {
+    note.className = 'hint warn';
+    note.textContent = '이 시뮬레이터에는 view.* 가 없어 시점을 움직일 수 없습니다 — 언리얼에 ViewRpcModule 이 배포돼야 합니다.';
+  } else {
+    note.className = 'hint ready';
+    note.textContent = '드래그로 시점 회전 · 휠로 화각.'
+      + (off
+        ? ' 더블클릭하면 그 지점을 바라봅니다.'
+        : ' (더블클릭 조준은 「영상 클릭」을 「쓰지 않음」으로 두어야 씁니다 — 클릭 배치와 겹칩니다.)')
+      + ' 영상이 초당 5장이라 조작보다 늦게 따라옵니다 — 위의 숫자가 먼저 움직입니다.';
+  }
+  el('simViewFovReset').disabled = !isMainView() || !viewControl.isAvailable();
+}
+
+/**
+ * 클릭 한 번을 월드 좌표로 바꿔 활성 패널에 넘긴다.
+ *
+ * **계산은 서버가 한다**(`/api/sim/pick`). 카메라 기하를 화면에도 한 벌 두면 언젠가
+ * 한쪽만 고쳐지고, 그 실패는 오류로 뜨지 않는다 — 차가 조금 엇나간 자리에 놓일 뿐이다.
+ */
+/**
+ * 포인터 한 점을 **영상의 실제 픽셀**로 바꾼다.
+ *
+ * 공용 도우미는 1920×1080 으로 정규화해 준다(Hucoms 규약). 서버·시뮬레이터에는 실제
+ * 픽셀로 보낸다 — 화면비가 16:9 가 아닌 영상이 와도 세로 화각이 어긋나지 않는다.
+ * 메인 뷰(960×540)와 PTZ 영상이 크기가 달라도 이 한 자리가 흡수한다.
+ */
+function imagePoint(event) {
+  const image = el('simStream');
+  if (!image.classList.contains('live')) return null;
+  const point = streamPointFromPointer({
+    button: event.button,
+    clientX: event.clientX,
+    clientY: event.clientY,
+    viewport: el('simViewport').getBoundingClientRect(),
+    image: image.getBoundingClientRect(),
+    naturalWidth: image.naturalWidth,
+    naturalHeight: image.naturalHeight,
+  });
+  if (!point) return null;
+  return {
+    x: (point.x / 1920) * image.naturalWidth,
+    y: (point.y / 1080) * image.naturalHeight,
+    width: image.naturalWidth,
+    height: image.naturalHeight,
+    left: point.left,
+    top: point.top,
+  };
+}
+
+async function viewportClick(event) {
+  const mode = el('simClickMode').value;
+  if (mode === 'off') return;
+  // 클릭을 받는 탭은 「차량 배치」뿐이다. 다른 탭에서 눌렀을 때 조용히 아무 일도 없으면
+  // 사람은 기능이 고장난 줄 안다 — 어디로 가야 하는지 말한다.
+  if (!active?.panel?.onViewportClick) return toast('영상 클릭은 「차량 배치」 탭에서 씁니다.', 'err');
+  const point = imagePoint(event);
+  if (!point) return;
+
+  const marker = el('simClickMarker');
+  marker.style.left = `${point.left}px`;
+  marker.style.top = `${point.top}px`;
+  marker.hidden = false;
+
+  // **메인 뷰는 언리얼이 직접 맞힌다**(`view.pick` = DeprojectScreenToWorld + 라인트레이스).
+  // 우리 서버의 `/api/sim/pick` 은 PTZ 자세(`cam.get`)로 기하를 푸는 것이라 메인 뷰에 쓸 수
+  // 없다 — 메인 뷰의 자세를 주는 `cam.*` 가 없기 때문이다. 그리고 라인트레이스는 평면을
+  // 가정하지 않으므로 경사·구조물 위도 그대로 맞는다.
+  if (isMainView()) {
+    if (!viewControl.isAvailable()) return toast('이 시뮬레이터에는 view.pick 이 없어 메인 뷰를 클릭할 수 없습니다.', 'err');
+    const hit = await rpc('view.pick', { x: point.x, y: point.y });
+    // 빗나가면 좌표를 지어내지 않는다 — 패널이 「지면과 만나지 않는다」고 말한다.
+    return active.panel.onViewportClick({
+      mode,
+      camId: null,
+      ground: hit?.hit ? hit.world : null,
+      car: hit?.actorId ? { id: hit.actorId } : null,
+    });
+  }
+
+  const camId = projectionCamId();
+  if (camId === null) return toast('이 영상 소스는 카메라 자세를 알 수 없어 클릭할 수 없습니다.', 'err');
+  const result = await api.simPick(
+    camId, point.x, point.y, point.width, point.height,
+    mode === 'place' ? Number(el('simGroundZ').value) || 0 : 0,
+  );
+  await active.panel.onViewportClick({ mode, camId, ground: result.ground, car: result.car });
+}
+
 // --- 탭 -------------------------------------------------------------------
 
 async function showTab(panelId) {
@@ -302,7 +496,38 @@ el('simSave').addEventListener('click', () => void (async () => {
 el('simConnect').addEventListener('click', () => void connect().catch(reportError));
 el('simStreamStart').addEventListener('click', startStream);
 el('simStreamStop').addEventListener('click', stopStream);
-el('simStreamCam').addEventListener('change', () => { if (streaming) startStream(); });
+el('simStreamCam').addEventListener('change', () => { updateClickNote(); if (streaming) startStream(); });
+el('simClickMode').addEventListener('change', () => {
+  el('simClickMarker').hidden = true;
+  updateClickNote();
+});
+// --- 영상 위의 마우스 -------------------------------------------------------
+//
+// 한 벌의 몸짓이 둘로 갈린다: **끌면 회전, 그냥 누르면 클릭.** 그래서 클릭은 누를 때가
+// 아니라 **뗄 때** 판정한다 — 누르는 순간에 처리하면 드래그 시작이 매번 클릭이 된다.
+// 움직임·뗌은 창 전체에서 듣는다. 영상 밖으로 끌고 나가도 회전이 이어져야 하고,
+// 밖에서 손을 떼도 드래그 상태가 남으면 안 되기 때문이다.
+// 오른쪽 버튼: **영상 위에서는 브라우저 팝업을 띄우지 않는다.** 시점을 끄는 도중에 뜨면
+// 그 메뉴 위에서 손을 떼게 되어 `mouseup` 이 화면에 오지 않고, 회전이 눌린 채로 남는다.
+el('simViewport').addEventListener('contextmenu', (event) => event.preventDefault());
+el('simViewport').addEventListener('mousedown', (event) => { if (isMainView()) viewControl.onDown(event); });
+addEventListener('mousemove', (event) => viewControl.onMove(event));
+addEventListener('mouseup', (event) => {
+  const wasDrag = viewControl.onUp();
+  if (wasDrag || event.button !== 0) return;
+  if (!el('simViewport').contains(event.target)) return;
+  void viewportClick(event).catch(reportError);
+});
+// `passive:false` 여야 preventDefault 가 먹는다 — 아니면 휠이 페이지를 함께 스크롤한다.
+el('simViewport').addEventListener('wheel', (event) => { if (isMainView()) viewControl.onWheel(event); }, { passive: false });
+// 더블클릭 조준은 **클릭 모드가 꺼져 있을 때만** 받는다. 켜져 있으면 dblclick 이 오기 전에
+// 클릭이 이미 두 번 처리되어 차가 두 대 놓인다 — 억누르는 대신 겹치지 않게 둔다.
+el('simViewport').addEventListener('dblclick', (event) => {
+  if (!isMainView() || el('simClickMode').value !== 'off') return;
+  const point = imagePoint(event);
+  if (point) void viewControl.lookAt(point).catch(reportError);
+});
+el('simViewFovReset').addEventListener('click', () => void viewControl.resetFov().catch(reportError));
 addEventListener('pagehide', stopStream);
 
 async function main() {

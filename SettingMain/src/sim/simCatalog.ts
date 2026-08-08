@@ -27,8 +27,12 @@
  *
  * ## 여기 없는 것
  *
- * - `light.*` · `view.*` · `file.list` — **그 서버에 아직 없다**(실측 `-32601`).
+ * - `light.*` · `file.list` — **그 서버에 아직 없다**(실측 `-32601`).
  *   설계서 §5.3 의 신설 대상이며, 생기면 여기 한 줄씩 더한다.
+ *
+ * `view.*` 4개는 **2026-08-08 에 언리얼에 신설되어** 여기 들어왔다(`ViewRpcModule`).
+ * 신설분이 배포되기 전까지는 그 서버가 `-32601` 을 주고, 화면이 「이 화면이 쓰는 메서드가
+ * 서버에 없습니다」로 그 사실을 먼저 말한다 — 그것이 맞는 동작이다.
  * - `preset.clear` · `car.deleteAll` 같은 전체 삭제는 **있다.** 화면이 확인을 받고 부른다.
  */
 
@@ -132,6 +136,15 @@ export const SIM_CATALOG: readonly SimMethod[] = [
   { method: 'random.pickCount', title: '랜덤 대수 뽑기', mutating: false, movesCamera: false },
   { method: 'random.slotPlace', title: '슬롯 배치', mutating: true, movesCamera: false, unimplemented: '주차면 슬롯(CFaceRect) 백엔드가 없습니다 — car.create 반복으로 우회합니다' },
   { method: 'random.placeInView', title: 'PTZ 뷰 안에 배치', mutating: true, movesCamera: false, unimplemented: 'PTZ 뷰포트 배치 백엔드가 없습니다' },
+
+  // --- view / 메인 뷰(자유 시점) ----------------------------------------------
+  // ⚠ `cam.*` 와 **다른 축**이다. 13600 은 카메라가 아니라 메인 뷰 채널이고 `cam.list` 에도
+  // 나오지 않는다 — 그것을 움직이는 것은 `view.*` 뿐이다.
+  // pitch 부호가 `cam.setTilt` 와 **반대**다(양수가 위). 환산은 `tilt = -pitch`.
+  { method: 'view.get', title: '메인 뷰 상태(위치·회전·화각·스트림포트)', mutating: false, movesCamera: false },
+  { method: 'view.set', title: '메인 뷰 이동(부분 갱신)', mutating: true, movesCamera: true },
+  { method: 'view.pick', title: '메인 뷰 클릭 → 월드 좌표', mutating: false, movesCamera: false },
+  { method: 'view.lookAt', title: '메인 뷰로 그 지점 바라보기', mutating: true, movesCamera: true },
 
   // --- map -------------------------------------------------------------------
   { method: 'map.get', title: '맵 크기 조회', mutating: false, movesCamera: false },

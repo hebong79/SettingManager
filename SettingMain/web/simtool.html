@@ -232,8 +232,9 @@
               <p class="hint">
                 좌표는 <strong>RPC 계(언리얼 Z-up)</strong>입니다 — 평면이 X·Y, 높이가 Z.
                 저장 파일은 Unity(Y-up)라 서버가 바꿉니다.
-                화면 클릭으로 자리를 찍으려면 언리얼에 <code>view.pick</code> 신설이 필요합니다 —
-                지금은 좌표를 직접 넣습니다.
+                <strong>메인 뷰 영상을 클릭하면 그 자리가 찍힙니다</strong>(오른쪽 「영상 클릭」을
+                <em>차량 배치</em>로 두세요) — 언리얼이 <code>view.pick</code> 으로 실제 지형을 맞히므로
+                경사·구조물 위도 그대로 들어옵니다. 좌표를 직접 넣어도 됩니다.
               </p>
             </div>
           </section>
@@ -415,7 +416,8 @@
                 <button id="mSetTarget" class="primary" type="button">타겟점 설치</button>
               </div>
               <p class="hint">
-                클릭으로 찍으려면 언리얼에 <code>view.pick</code> 신설이 필요합니다 — 지금은 좌표 입력입니다.
+                좌표는 직접 넣습니다. <strong>메인 뷰에서 클릭으로 좌표를 얻으려면</strong>
+                「차량 배치」 탭에서 찍어 그 값을 옮겨 적으세요 — 이 탭은 아직 클릭을 받지 않습니다.
                 <strong>거리·각도는 타겟점을 설치해야 답합니다</strong>(안 하면 시뮬레이터가 그렇게 말합니다).
               </p>
             </div>
@@ -491,6 +493,7 @@
           <h2>시뮬레이터 뷰 <span class="tag" id="simStreamTag">정지</span></h2>
           <div class="viewport" id="simViewport">
             <img id="simStream" alt="시뮬레이터 카메라 영상">
+            <div class="stream-click-marker" id="simClickMarker" hidden></div>
             <div class="placeholder" id="simPlaceholder">영상은 자동으로 시작하지 않습니다. 카메라를 고르고 「시작」을 누르세요.</div>
           </div>
           <div class="body">
@@ -500,6 +503,29 @@
               <button id="simStreamStop" type="button">정지</button>
             </div>
             <p class="warn" id="simStreamSlots" hidden></p>
+            <div class="row">
+              <div class="field">
+                <label for="simClickMode">영상 클릭</label>
+                <select id="simClickMode">
+                  <option value="off">쓰지 않음</option>
+                  <option value="select">차량 선택</option>
+                  <option value="place">차량 배치 (지면)</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="simGroundZ">지면 높이 z</label>
+                <input id="simGroundZ" type="number" step="0.1" value="0">
+              </div>
+            </div>
+            <p class="hint" id="simClickNote">-</p>
+            <div class="row">
+              <div class="field">
+                <label for="simViewPose">메인 뷰 시점</label>
+                <output id="simViewPose">-</output>
+              </div>
+              <button id="simViewFovReset" type="button">화각 되돌리기</button>
+            </div>
+            <p class="hint" id="simViewNote">-</p>
             <p class="hint">
               영상 소스는 <strong>등록된 카메라</strong>(<code>camera_info</code>)입니다 —
               <strong><code>simulator-99</code> 가 시뮬레이터 메인 카메라</strong>(스트림 <code>13600</code>)이고

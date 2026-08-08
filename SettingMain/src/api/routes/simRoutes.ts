@@ -6,6 +6,11 @@ import {
   readCameraFile, readCarFile, readPresetFile,
 } from '../../sim/simFiles.js';
 import { rpcToFile, vec3 } from '../../sim/simCoords.js';
+import type { Vec3 } from '../../sim/simCoords.js';
+import {
+  poseFrom, projectToScreen, screenToGround,
+  type CameraPose, type ScreenPoint,
+} from '../../sim/simProject.js';
 import { SimRpcClient, SimRpcError } from '../../sim/simRpcClient.js';
 import type { RouteHandler } from './routeContext.js';
 
@@ -99,6 +104,26 @@ export const simRoutes: RouteHandler = async (ctx) => {
     return true;
   }
 
+  // 영상 위의 클릭 한 번을 **월드 좌표와 차량 한 대**로 바꾼다.
+  //
+  // 화면이 직접 계산하지 않는 이유는 `simCoords` 와 같다 — 카메라 기하가 두 곳에 있으면
+  // 한쪽만 고쳐지고, 그 실패는 오류로 뜨지 않는다. 그리고 자세(`cam.get`)는 어차피
+  // 시뮬레이터에 물어야 하므로 여기서 묻는 편이 왕복이 적다.
+  if (method === 'POST' && pathname === '/api/sim/pick') {
+    const body = await readJsonBody(req);
+    const request = readPickRequest(body);
+    const client = new SimRpcClient({ ...config.simTool, fetchImpl: deps.fetchImpl });
+    // 자세와 차량은 **같은 순간**의 것이어야 한다 — 사이에 카메라가 움직이면 어긋난다.
+    const [camera, list] = await Promise.all([
+      client.call('cam.get', { camId: request.camId }),
+      client.call('car.list', {}),
+    ]);
+    const pose = poseFrom(camera);
+    if (!pose) throw new SimRpcError(`카메라 ${request.camId} 의 자세를 읽지 못했습니다`, 502);
+    sendJson(res, 200, { camId: request.camId, pose, ...pick(pose, request, list) });
+    return true;
+  }
+
   if (method === 'POST' && pathname === '/api/sim/rpc') {
     const body = await readJsonBody(req);
     const name = typeof body.method === 'string' ? body.method.trim() : '';
@@ -112,6 +137,58 @@ export const simRoutes: RouteHandler = async (ctx) => {
 
   return false;
 };
+
+interface PickRequest {
+  camId: number;
+  screen: ScreenPoint;
+  viewport: { width: number; height: number };
+  groundZ: number;
+}
+
+/**
+ * 클릭 요청을 읽는다. **영상의 실제 픽셀 크기를 화면이 함께 보내야 한다** —
+ * `<img>` 가 늘어나 보이는 크기가 아니라 `naturalWidth/naturalHeight` 다. 화면비가
+ * 어긋나면 세로 화각이 틀어지고, 그 오차는 화면 가장자리에서만 커져서 눈치채기 어렵다.
+ */
+function readPickRequest(body: Record<string, unknown>): PickRequest {
+  const read = (key: string): number => Number(body[key]);
+  const camId = read('camId');
+  const [x, y, width, height] = ['x', 'y', 'width', 'height'].map(read);
+  if (!Number.isInteger(camId) || camId <= 0) throw new SimRpcError('camId 가 필요합니다', 400);
+  if (![x, y].every(Number.isFinite)) throw new SimRpcError('클릭 좌표 x·y 가 필요합니다', 400);
+  if (!(width > 0) || !(height > 0)) throw new SimRpcError('영상 크기 width·height 가 필요합니다', 400);
+  const groundZ = Number(body.groundZ);
+  return { camId, screen: { x, y }, viewport: { width, height }, groundZ: Number.isFinite(groundZ) ? groundZ : 0 };
+}
+
+/**
+ * 클릭에서 가장 가까운 차량. **너무 멀면 고르지 않는다** — 아무 데나 찍어도 화면 밖
+ * 어딘가의 차가 잡히면 "빈 자리를 찍었다"를 표현할 방법이 없어진다(3번 배치가 그것을 쓴다).
+ * 기준은 영상 가로의 6% 로, 줌을 바꿔도 눈에 보이는 거리와 대략 비례한다.
+ */
+const PICK_RADIUS_RATIO = 0.06;
+
+function pick(pose: CameraPose, request: PickRequest, list: unknown): {
+  ground: Vec3 | null;
+  car: { id: string; screen: ScreenPoint; distancePx: number } | null;
+} {
+  const rows = ((list ?? {}) as { cars?: unknown[] }).cars ?? [];
+  let best: { id: string; screen: ScreenPoint; distancePx: number } | null = null;
+  for (const raw of rows) {
+    const car = (raw ?? {}) as Record<string, unknown>;
+    const id = typeof car.carNameId === 'string' ? car.carNameId : '';
+    if (!id) continue;
+    const screen = projectToScreen(pose, request.viewport, vec3(car.pos));
+    if (!screen) continue;
+    const distancePx = Math.hypot(screen.x - request.screen.x, screen.y - request.screen.y);
+    if (!best || distancePx < best.distancePx) best = { id, screen, distancePx };
+  }
+  const radius = request.viewport.width * PICK_RADIUS_RATIO;
+  return {
+    ground: screenToGround(pose, request.viewport, request.screen, request.groundZ),
+    car: best && best.distancePx <= radius ? best : null,
+  };
+}
 
 /**
  * 화면이 준 **RPC 좌표** 행을 해석기가 아는 **파일 행 모양**으로 되돌린다.

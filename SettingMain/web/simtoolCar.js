@@ -239,7 +239,41 @@ export function createCarPanel(ctx) {
     ctx.toast(`시뮬레이터가 ${name} 을 열었습니다`, 'ok');
   }));
 
+  /**
+   * 영상 클릭. 껍데기가 이미 **월드 좌표로 바꿔서** 넘겨준다 — 여기서 기하를 다시 계산하지
+   * 않는다(`src/sim/simProject.ts` 한 곳).
+   *
+   * ## 고른 차가 이 목록에 없을 수 있다
+   *
+   * 클릭이 맞히는 것은 **시뮬레이터의 현재 차량**(`car.list`)이고, 이 목록은 파일에서 연
+   * 것일 수 있다. 두 축이 다르므로 id 가 없으면 **그렇다고 말한다** — 비슷한 것을 찾아
+   * 골라 주면 사람은 맞는 차를 고른 줄 알게 된다.
+   */
+  async function viewportClick({ mode, ground, car }) {
+    if (mode === 'select') {
+      if (!car) return ctx.toast('그 자리에서 차량을 찾지 못했습니다.', 'err');
+      if (!cars.some((entry) => entry.id === car.id)) {
+        return ctx.toast(`시뮬레이터의 ${car.id} 를 클릭했지만 이 목록에 없습니다 — 「시뮬에서 가져오기」로 현재 상태를 담을 수 있습니다.`, 'err');
+      }
+      el('carList').value = car.id;
+      showSelected();
+      return ctx.toast(`${car.id} 를 골랐습니다`, 'ok');
+    }
+    // 배치 — 지면과 만나지 않는 곳(하늘·수평선 위)을 찍으면 좌표가 없다.
+    if (!ground) return ctx.toast('그 방향은 지면과 만나지 않습니다 — 지면 쪽을 클릭하세요.', 'err');
+    el('carX').value = fmt(ground.x);
+    el('carY').value = fmt(ground.y);
+    el('carZ').value = fmt(ground.z);
+    const id = newId();
+    cars = [...cars, formCar(id)];
+    bar.markDirty();
+    renderList(id);
+    ctx.toast(`${id} 를 (${fmt(ground.x, 2)}, ${fmt(ground.y, 2)}) 에 추가했습니다 — 목록만 바뀝니다`, 'ok');
+  }
+
   return {
+    onViewportClick: viewportClick,
+
     async onActivate() {
       // 카탈로그는 이 PC 것이라 시뮬레이터가 꺼져 있어도 읽힌다. 목록은 자동으로
       // 가져오지 않는다 — 편집 중인 것을 덮어쓰면 안 된다.

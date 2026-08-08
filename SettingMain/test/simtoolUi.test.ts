@@ -16,6 +16,7 @@ const read = (name: string) => readFile(new URL(`../web/${name}`, import.meta.ur
 const PANELS = [
   'simtool.js', 'simtoolPreset.js', 'simtoolCar.js', 'simtoolCam.js',
   'simtoolMeasure.js', 'simtoolOpen.js', 'simtoolFileBar.js',
+  'simtoolViewControl.js',
 ];
 
 /** 세 툴(프리셋·차량·카메라)이 **같은 형태**여야 한다 — 마스터 지시 2026-08-07. */
@@ -84,6 +85,86 @@ describe('시뮬레이터 툴 화면', () => {
   it('스캔이 실제로 RPC 호출을 찾았다', async () => {
     const all = (await Promise.all(PANELS.map(read))).flatMap(calledMethods);
     expect(new Set(all).size).toBeGreaterThan(15);
+  });
+});
+
+/**
+ * 메인 뷰(자유 시점) 조작. 2026-08-08 언리얼 `view.*` 신설로 열렸다.
+ *
+ * 브라우저 없이 잡을 수 있는 실패를 본다 — 특히 **낡은 안내가 남는 것**은 오류로 뜨지 않고
+ * 사람만 속인다("신설이 필요합니다"를 읽고 되는 기능을 안 쓴다).
+ */
+describe('메인 뷰 조작', () => {
+  it('메인 뷰 클릭은 언리얼에게 맡긴다 — 웹이 기하를 재현하지 않는다', async () => {
+    const source = stripComments(await read('simtool.js'));
+    expect(source).toContain("rpc('view.pick'");
+    // PTZ 경로(/api/sim/pick)는 남아 있어야 한다 — 메인 뷰가 그것을 대체하는 것이 아니다.
+    expect(source).toContain('api.simPick(');
+  });
+
+  /**
+   * 포트를 화면이 조립하면 언리얼이 basePort 를 바꾸는 날 조용히 어긋난다.
+   * 메인 뷰 판정은 **시뮬레이터가 준 `view.get.streamPort`** 와 맞춰야 한다.
+   */
+  it('메인 뷰 포트를 화면에 적어 두지 않는다', async () => {
+    const source = stripComments(await read('simtool.js'));
+    expect(source).not.toContain('13600');
+    expect(source).toContain('mainStreamPort()');
+  });
+
+  /**
+   * 끌면 회전, 그냥 누르면 클릭 — 누를 때 클릭을 처리하면 **드래그 시작이 매번 클릭**이 된다.
+   * 「차량 배치」 모드에서는 그것이 차를 한 대씩 놓는다.
+   */
+  it('클릭은 누를 때가 아니라 뗄 때 판정한다', async () => {
+    const source = stripComments(await read('simtool.js'));
+    expect(source).toMatch(/addEventListener\('mouseup'/);
+    expect(source).not.toMatch(/'mousedown',\s*\(event\)\s*=>\s*void viewportClick/);
+  });
+
+  /** 프레임마다 보내면 시뮬레이터가 밀린다 — 한 번에 하나만 띄우고 마지막 것만 살린다. */
+  it('시점 이동은 한 번에 한 요청만 띄운다', async () => {
+    const source = stripComments(await read('simtoolViewControl.js'));
+    expect(source).toContain('inFlight');
+    expect(source).toContain('pending');
+  });
+
+  /**
+   * 언리얼 `SetFOV` 는 잠금을 건다 — 해제 수단이 없으면 휠을 굴린 사람이 기본 화각으로
+   * 못 돌아온다(앱 재기동 전까지). `fov: 0` 이 그 해제다.
+   */
+  it('화각을 되돌릴 길이 있다', async () => {
+    const source = stripComments(await read('simtoolViewControl.js'));
+    expect(source).toContain('fov: 0');
+    expect(await read('simtool.html')).toContain('id="simViewFovReset"');
+  });
+
+  /** `view` 의 pitch 는 양수가 위다(`cam.setTilt` 와 반대) — 아래로 끌면 빼야 한다. */
+  it('아래로 끌면 pitch 를 뺀다', async () => {
+    expect(stripComments(await read('simtoolViewControl.js'))).toMatch(/pitch:\s*rot\(\)\.pitch\s*-/);
+  });
+
+  /**
+   * 오른쪽 버튼 팝업이 영상 위에 뜨면, 시점을 끄는 도중이던 사람은 **그 메뉴 위에서 손을
+   * 뗀다.** 그러면 `mouseup` 이 화면에 오지 않는다 — 아래 테스트와 한 쌍이다.
+   */
+  it('영상 위에서는 오른쪽 버튼 팝업을 띄우지 않는다', async () => {
+    const source = stripComments(await read('simtool.js'));
+    expect(source).toMatch(/addEventListener\('contextmenu'[\s\S]{0,80}preventDefault/);
+  });
+
+  /**
+   * 팝업·창 밖에서 버튼을 떼면 `mouseup` 을 못 받는다. 그 상태가 남으면 **버튼을 놓았는데도
+   * 마우스만 움직이면 시점이 계속 돈다.** 매 이동마다 `buttons` 로 회수한다.
+   */
+  it('놓친 mouseup 을 회수한다 — 버튼이 떨어져 있으면 회전을 멈춘다', async () => {
+    expect(stripComments(await read('simtoolViewControl.js'))).toMatch(/event\.buttons\s*&\s*1/);
+  });
+
+  /** 되는 기능을 「신설이 필요합니다」로 안내하고 있으면 아무도 쓰지 않는다. */
+  it('view.* 가 없다던 낡은 안내가 남아 있지 않다', async () => {
+    const html = await read('simtool.html');
+    expect(html).not.toContain('view.pick</code> 신설이 필요합니다');
   });
 });
 
@@ -278,7 +359,9 @@ describe('시뮬레이터 툴의 독립', () => {
     const api = await read('api.js');
     const block = api.slice(api.indexOf('시뮬레이터 툴'), api.indexOf('settings:'));
     const surface = [...block.matchAll(/^\s{2}(sim\w+):/gm)].map((m) => m[1]);
-    expect(surface).toEqual(['simCatalog', 'simCarCatalog', 'simFiles', 'simFile', 'simParseFile', 'simSerialize', 'simRpc']);
+    expect(surface).toEqual([
+      'simCatalog', 'simCarCatalog', 'simFiles', 'simFile', 'simParseFile', 'simSerialize', 'simRpc', 'simPick',
+    ]);
     for (const path of [...block.matchAll(/['`](\/api\/[^'`]*)/g)].map((m) => m[1])) {
       expect(path, path).toMatch(/^\/api\/sim\//);
     }
@@ -289,6 +372,62 @@ describe('시뮬레이터 툴의 독립', () => {
     for (const script of PANELS) {
       expect(stripComments(await read(script)), script).not.toMatch(/[*/]\s*100\b/);
     }
+  });
+});
+
+/**
+ * 영상 클릭(마스터 지시 2026-08-08 "2.3번"). 여기서 지키는 것은 **화면이 기하를 다시
+ * 계산하지 않는다**는 것과, **못 하는 경우를 못 한다고 말한다**는 것 둘이다.
+ */
+describe('영상 클릭', () => {
+  it('카메라 기하를 화면에서 다시 계산하지 않는다 — 규칙은 서버 한 곳이다', async () => {
+    for (const script of PANELS) {
+      const source = stripComments(await read(script));
+      // 화각 상수나 삼각함수가 화면에 나타나면 그 순간 규칙이 두 벌이 된다.
+      expect(source, script).not.toContain('56.5');
+      expect(source, script).not.toMatch(/Math\.(tan|atan2?|cos|sin)\b/);
+    }
+  });
+
+  it('클릭 계산은 /api/sim/pick 하나로만 간다', async () => {
+    const shell = stripComments(await read('simtool.js'));
+    expect(shell).toContain('api.simPick(');
+    // 껍데기가 자세를 따로 물어 화면에서 계산하기 시작하면 위 규칙이 무너진다.
+    expect(shell).not.toContain("'cam.get'");
+  });
+
+  it('영상 소스와 시뮬 카메라는 **스트림 포트로** 짝짓는다 — 13600+camId 를 다시 계산하지 않는다', async () => {
+    const shell = stripComments(await read('simtool.js'));
+    expect(shell).toContain('streamPort');
+    expect(shell).not.toMatch(/13600\s*\+/);
+  });
+
+  /**
+   * 2026-08-08 정정 — 언리얼에 `view.*` 가 신설되어 **메인 뷰에서도 클릭이 된다.**
+   * 이 테스트가 지키는 것은 "안내가 지금 사실과 맞는가"다. 자세를 알 수 없는 소스
+   * (메인도 PTZ 도 아닌 실카메라 등)에는 여전히 안 된다고 말해야 한다.
+   */
+  it('클릭이 되는 소스와 안 되는 소스를 갈라 말한다', async () => {
+    const shell = await read('simtool.js');
+    const note = shell.slice(shell.indexOf('function updateClickNote('), shell.indexOf('function updateViewNote('));
+    expect(note).toContain('메인 뷰');
+    expect(note).toContain('클릭이 되지 않습니다');
+    // 메인 뷰는 라인트레이스라 평면 높이를 쓰지 않는다 — 안 쓰는 칸은 꺼 둔다.
+    expect(note).toMatch(/simGroundZ'\)\.disabled\s*=.*main/);
+  });
+
+  it('클릭 모드와 지면 높이 입력이 HTML 에 있다', async () => {
+    const ids = declaredIds(await read('simtool.html'));
+    for (const id of ['simClickMode', 'simGroundZ', 'simClickNote', 'simClickMarker']) {
+      expect(ids.has(id), id).toBe(true);
+    }
+  });
+
+  it('클릭으로 배치한 차량은 **목록만** 바꾼다 — 시뮬레이터를 바로 건드리지 않는다', async () => {
+    const car = await read('simtoolCar.js');
+    const handler = car.slice(car.indexOf('async function viewportClick('), car.indexOf('return {\n    onViewportClick'));
+    expect(handler).toContain('bar.markDirty()');
+    expect(handler).not.toMatch(/ctx\.rpc\(/);
   });
 });
 
@@ -304,9 +443,15 @@ describe('없는 기능을 흉내 내지 않는다', () => {
     expect(panel).not.toMatch(/<input|<select/);
   });
 
-  it('클릭 피킹이 없다는 사실을 두 탭이 말한다', async () => {
+  /**
+   * 2026-08-08 정정 — `view.pick` 은 신설되어 **차량 배치 탭에서 실제로 쓴다.**
+   * 아직 클릭을 받지 않는 탭(거리 측정)은 그 사실을 그대로 말해야 한다 —
+   * "된다"고 적어 두고 눌러도 반응이 없으면 고장으로 읽힌다.
+   */
+  it('아직 클릭을 받지 않는 탭은 그렇다고 말한다', async () => {
     const html = await read('simtool.html');
-    expect(html.match(/view\.pick/g)?.length).toBeGreaterThanOrEqual(2);
+    const measure = html.slice(html.indexOf('id="panelMeasure"'), html.indexOf('id="panelLight"'));
+    expect(measure).toContain('이 탭은 아직 클릭을 받지 않습니다');
   });
 });
 

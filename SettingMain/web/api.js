@@ -125,6 +125,12 @@ export const api = {
   /** 저장용 — 화면의 목록을 **파일 모양(Unity 좌표)** 으로 되돌린다. 축 변환은 서버가 한다. */
   simSerialize: (kind, resultKey, rows) => request('POST', `/api/sim/files/${kind}/serialize`, { [resultKey]: rows }),
   simRpc: (method, params = {}) => request('POST', '/api/sim/rpc', { method, params }),
+  /**
+   * 영상 위의 클릭 → 지면 좌표와 그 자리의 차량. **좌표는 영상의 실제 픽셀**이어야 한다
+   * (`naturalWidth/naturalHeight` 기준) — 화면에 늘어나 보이는 크기가 아니다.
+   */
+  simPick: (camId, x, y, width, height, groundZ = 0) =>
+    request('POST', '/api/sim/pick', { camId, x, y, width, height, groundZ }),
 
   settings: () => request('GET', '/api/settings'),
   saveSettings: (patch) => request('PUT', '/api/settings', patch),
