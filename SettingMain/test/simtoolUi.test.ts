@@ -16,7 +16,14 @@ const read = (name: string) => readFile(new URL(`../web/${name}`, import.meta.ur
 const PANELS = [
   'simtool.js', 'simtoolPreset.js', 'simtoolCar.js', 'simtoolCam.js',
   'simtoolMeasure.js', 'simtoolOpen.js', 'simtoolFileBar.js',
-  'simtoolViewControl.js',
+  'simtoolViewControl.js', 'simtoolWorkMode.js',
+];
+
+/** 작업모드를 가진 세 탭 — 마스터 지시 2026-08-08. 셋이 **같은 형태**여야 한다. */
+const WORK_TABS = [
+  { name: '프리셋 메이커', script: 'simtoolPreset.js', toggle: 'spWork', note: 'spWorkNote' },
+  { name: '차량 배치', script: 'simtoolCar.js', toggle: 'carWork', note: 'carWorkNote' },
+  { name: '카메라 컨트롤', script: 'simtoolCam.js', toggle: 'camWork', note: 'camWorkNote' },
 ];
 
 /** 세 툴(프리셋·차량·카메라)이 **같은 형태**여야 한다 — 마스터 지시 2026-08-07. */
@@ -451,18 +458,187 @@ describe('영상 클릭', () => {
     expect(note).toMatch(/simGroundZ'\)\.disabled\s*=.*main/);
   });
 
-  it('클릭 모드와 지면 높이 입력이 HTML 에 있다', async () => {
+  it('지면 높이 입력과 클릭 표식이 HTML 에 있다', async () => {
     const ids = declaredIds(await read('simtool.html'));
-    for (const id of ['simClickMode', 'simGroundZ', 'simClickNote', 'simClickMarker']) {
+    for (const id of ['simGroundZ', 'simClickNote', 'simClickMarker']) {
       expect(ids.has(id), id).toBe(true);
     }
   });
 
-  it('클릭으로 배치한 차량은 **목록만** 바꾼다 — 시뮬레이터를 바로 건드리지 않는다', async () => {
+  /**
+   * 2026-08-08 마스터 결정 — 전역 「영상 클릭」 드롭다운을 **없앴다.**
+   *
+   * 지시 3~5 가 같은 왼쪽 클릭을 탭마다 다르게 정의했으므로, 전역 모드를 함께 두면 클릭
+   * 의미의 정본이 둘이 된다. 남아 있으면 **어느 것이 이겼는지 알 수 없는 클릭**이 생긴다.
+   */
+  it('전역 클릭 모드가 남아 있지 않다 — 정본은 「활성 탭 + Ctrl」 한 곳이다', async () => {
+    expect(await read('simtool.html')).not.toContain('id="simClickMode"');
+    for (const script of PANELS) {
+      expect(stripComments(await read(script)), script).not.toContain('simClickMode');
+    }
+  });
+
+  /** 클릭 의미가 탭에서 오므로, 껍데기는 `ctrl` 과 좌표만 넘긴다. */
+  it('껍데기가 Ctrl 여부를 탭에 넘긴다', async () => {
+    const shell = stripComments(await read('simtool.js'));
+    expect(shell.match(/ctrl:\s*event\.ctrlKey/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(shell).toContain('clickHelp');
+  });
+
+  it('클릭으로 배치한 차량은 목록만 바꾼다 — 시뮬레이터를 바로 건드리지 않는다', async () => {
     const car = await read('simtoolCar.js');
-    const handler = car.slice(car.indexOf('async function viewportClick('), car.indexOf('return {\n    onViewportClick'));
+    const handler = car.slice(car.indexOf('function placeAt('), car.indexOf('async function selectAt('));
     expect(handler).toContain('bar.markDirty()');
     expect(handler).not.toMatch(/ctx\.rpc\(/);
+  });
+});
+
+/**
+ * 「작업모드」 — 키보드와 Ctrl+클릭의 **소유권 플래그** (마스터 지시 2026-08-08).
+ *
+ * 여기서 지키는 것은 셋이다: ① 소유권이 실제로 넘어가는가 ② 그 사실이 화면에 보이는가
+ * ③ 키를 누르고 있을 때 요청이 쌓이지 않는가.
+ */
+describe('작업모드', () => {
+  it.each(WORK_TABS)('$name — 토글과 안내가 HTML 에 있다', async ({ toggle, note }) => {
+    const ids = declaredIds(await read('simtool.html'));
+    expect(ids.has(toggle), toggle).toBe(true);
+    expect(ids.has(note), note).toBe(true);
+  });
+
+  /** 같은 규율을 세 벌로 두면 한 곳만 고치는 날이 온다 — 파일 막대와 같은 판단이다. */
+  it.each(WORK_TABS)('$name — 공용 모듈을 쓴다 (세 벌로 두지 않는다)', async ({ script }) => {
+    expect(await read(script)).toContain('createWorkMode(');
+  });
+
+  /**
+   * 작업모드가 켜지면 `W A S D` 가 시점이 아니라 오브젝트로 가야 한다. 껍데기가 탭에게
+   * **먼저** 묻지 않으면 한 번 누를 때 오브젝트와 시점이 함께 움직인다.
+   */
+  it('키보드는 활성 탭이 먼저 가져간다 — 남은 것만 메인 뷰로 간다', async () => {
+    const shell = stripComments(await read('simtool.js'));
+    const handler = shell.slice(shell.indexOf("addEventListener('keydown'"));
+    const mine = handler.indexOf('onKey?.(event.code)');
+    const view = handler.indexOf('viewControl.step(event.code)');
+    expect(mine).toBeGreaterThan(-1);
+    expect(mine).toBeLessThan(view);
+  });
+
+  /** 물리 키 위치로 본다 — 한글 입력 상태에서 `event.key` 는 'ㅈ'·'ㅁ'·'ㄴ'·'ㅇ' 이다. */
+  it('작업모드 키도 자판 배치가 아니라 물리 키 위치로 본다', async () => {
+    const source = stripComments(await read('simtoolWorkMode.js'));
+    for (const code of ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE']) expect(source, code).toContain(code);
+  });
+
+  /**
+   * 키를 누르고 있으면 브라우저가 초당 수십 번 `keydown` 을 준다 — 오는 족족 보내면
+   * 손을 뗀 뒤에도 오브젝트가 한참 더 간다. 메인 뷰 WASD 가 이미 겪은 실패다.
+   */
+  it('키 반복이 요청을 쌓지 않는다 — 한 걸음이 오가는 동안 온 것은 버린다', async () => {
+    const source = stripComments(await read('simtoolWorkMode.js'));
+    expect(source).toMatch(/if\s*\(busy\)\s*return true/);
+    expect(source).toContain('busy = true');
+  });
+
+  /**
+   * ⚠ 화면이 yaw 로 축을 돌리면 **카메라 규약이 두 벌**이 된다. 이동은 방향 패드와 같은
+   * 월드 축이어야 한다 — 이 저장소의 「기하는 서버 한 곳」 규율과 한 쌍이다.
+   */
+  it('이동 축은 월드다 — 화면이 시점으로 축을 돌리지 않는다', async () => {
+    const source = stripComments(await read('simtoolWorkMode.js'));
+    expect(source).not.toMatch(/Math\.(tan|atan2?|cos|sin)\b/);
+    expect(source).not.toContain('yaw');
+  });
+
+  /**
+   * 작업모드가 켜지면 `W A S D` 가 시점을 안 움직인다. 그 사실이 화면에 없으면
+   * **"WASD 가 안 먹는다"가 고장으로 읽힌다.**
+   */
+  it('누가 키보드를 갖고 있는지 메인 뷰 안내가 말한다', async () => {
+    const shell = stripComments(await read('simtool.js'));
+    const note = shell.slice(shell.indexOf('function updateViewNote('), shell.indexOf('function imagePoint('));
+    expect(note).toContain('isWorkMode');
+    expect(note).toContain('작업모드');
+    // 토글이 바뀌면 그 안내가 다시 그려져야 한다.
+    expect(shell).toContain('workModeChanged');
+  });
+
+  /**
+   * ⚠ 카메라 탭만 **이동(m)과 회전(°)의 단위가 다르다.** 한 칸을 나눠 쓰면 2° 를 돌리려던
+   * 사람이 카메라를 2m 옮긴다 — 오류로 뜨지 않고 카메라만 엉뚱한 자리에 간다.
+   */
+  it('카메라 탭은 이동(m)과 회전(°) 입력칸을 나눠 쓴다', async () => {
+    const ids = declaredIds(await read('simtool.html'));
+    expect(ids.has('camMoveStep')).toBe(true);
+    expect(ids.has('camStep')).toBe(true);
+    const source = stripComments(await read('simtoolCam.js'));
+    expect(source).toContain("stepId: 'camMoveStep'");
+    expect(source).toMatch(/rotate\([\s\S]{0,400}num\('camStep'\)/);
+  });
+
+  /**
+   * 「폴대도 옮겨라」는 지시였지만 **폴대 RPC 는 없다.** 없는 메서드를 지어 부르면
+   * 카탈로그가 400 으로 막고, 사람은 위치 이동까지 실패한 줄 안다.
+   */
+  it('없는 폴대 RPC 를 지어 부르지 않는다 — 카메라 액터가 함께 옮긴다', async () => {
+    const source = await read('simtoolCam.js');
+    expect(source).not.toMatch(/rpc\('(pole|mast)\./);
+    expect(await read('simtool.html')).toContain('폴대에는 별도 RPC 가 없습니다');
+  });
+});
+
+/**
+ * 탭별 Ctrl+클릭 계약 (마스터 지시 3~5). 각 탭이 **무엇을 하는지**와 **그렇다고 말하는지**를
+ * 함께 본다 — 화면이 자기 계약을 말하지 않으면 사람은 눌러 보고 알아내야 한다.
+ */
+describe('탭별 Ctrl+클릭', () => {
+  it.each(WORK_TABS)('$name — 클릭이 무엇을 하는지 탭이 스스로 말한다', async ({ script }) => {
+    const source = await read(script);
+    expect(source).toContain('clickHelp');
+    expect(source).toMatch(/clickHelp:\s*'Ctrl\+왼쪽 클릭/);
+  });
+
+  /**
+   * 지시 3. **절대(`to`)** 로 옮긴다 — 상대(`delta`)로 하려면 지금 위치를 알아야 하는데
+   * 그 값은 시뮬레이터가 갖고 있다. 한 번 더 묻는 사이에 누가 옮기면 어긋난다.
+   */
+  it('프리셋 — Ctrl+클릭이 그 자리로 절대 이동한다', async () => {
+    const source = stripComments(await read('simtoolPreset.js'));
+    const handler = source.slice(source.indexOf('async function viewportClick('));
+    expect(handler).toMatch(/if\s*\(!ctrl\)\s*return/);
+    expect(handler).toMatch(/preset\.move'[\s\S]{0,120}to:/);
+    // 클릭이 맞힌 것은 지형이다. 그 z 로 프리셋 높이를 덮어쓰면 「상세」의 Offset Z 와 갈린다.
+    expect(handler).not.toMatch(/to:\s*\{[^}]*\bz\b/);
+  });
+
+  /** 지시 3 후반. 목록을 고르면 시뮬레이터에서도 골라야 이어지는 키보드가 같은 것을 민다. */
+  it('프리셋 — 목록을 고르면 시뮬레이터에서도 고른다', async () => {
+    const source = stripComments(await read('simtoolPreset.js'));
+    const handler = source.slice(source.indexOf("el('spList').addEventListener"));
+    expect(handler.slice(0, 500)).toContain("preset.select'");
+    // ⚠ 이 목록은 **파일**에서 왔다. 시뮬레이터가 비어 있으면 훑는 것만으로 매번 오류가
+    // 나므로, "지금 시뮬레이터를 몰고 있다"는 선언(작업모드)일 때만 두드린다.
+    expect(handler.slice(0, 500)).toContain('work.isOn()');
+  });
+
+  /** 지시 4. Ctrl 이면 추가, 아니면 선택 — 한 줄로 갈린다. */
+  it('차량 — Ctrl 은 추가, 그냥 클릭은 선택', async () => {
+    const source = stripComments(await read('simtoolCar.js'));
+    expect(source).toMatch(/ctrl\s*\?\s*placeAt\(ground\)\s*:\s*selectAt\(car\)/);
+  });
+
+  /**
+   * 지시 5. 클릭이 맞힌 것은 **지면**이라, 그 z 를 카메라에 쓰면 바닥에 처박힌다.
+   * 높이는 지금 값을 지켜야 한다.
+   */
+  it('카메라 — Ctrl+클릭이 높이를 지킨 채 그 자리로 옮긴다', async () => {
+    const source = stripComments(await read('simtoolCam.js'));
+    const move = source.slice(source.indexOf('async function moveTo('));
+    expect(move.slice(0, 400)).toMatch(/z:\s*camera\.pos\?\.z/);
+    const handler = source.slice(source.indexOf('async function viewportClick('));
+    expect(handler.slice(0, 400)).toMatch(/moveTo\(ground\.x,\s*ground\.y\)/);
+    // 지면과 만나지 않는 클릭에 좌표를 지어내지 않는다.
+    expect(handler.slice(0, 400)).toContain('!ground');
   });
 });
 

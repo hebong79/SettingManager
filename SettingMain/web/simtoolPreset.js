@@ -1,4 +1,5 @@
 import { createFileBar } from './simtoolFileBar.js';
+import { createWorkMode } from './simtoolWorkMode.js';
 
 const el = (id) => document.getElementById(id);
 const num = (id) => Number(el(id).value);
@@ -35,6 +36,24 @@ export function createPresetPanel(ctx) {
 
   const selected = () => presets.find((preset) => String(preset.idx) === el('spList').value);
 
+  /**
+   * 작업모드 — 켜면 `W A S D` 로 이 프리셋을 옮기고 `Q E` 로 돌린다.
+   *
+   * 회전은 **그룹 회전**(`deltaGroupRot`)이다. 면 회전(`deltaFaceRot`)은 그룹 안에서 각 면이
+   * 도는 것이라 「오브젝트를 돌린다」는 몸짓과 다르고, 방향 패드에 이미 있다(◀▶).
+   */
+  const work = createWorkMode({
+    toggleId: 'spWork',
+    noteId: 'spWorkNote',
+    stepId: 'spStep',
+    ctx,
+    target: selected,
+    describe: (preset) => `${preset.idx}. ${preset.presetName ?? ''}`,
+    move: (preset, dx, dy) => ctx.rpc('preset.move', { idx: preset.idx, delta: { x: dx, y: dy } }),
+    // `spStep` 하나가 m 이자 ° 다 — 방향 패드가 이미 그렇게 쓰고 있어 규약을 나누지 않는다.
+    rotate: (preset, sign) => ctx.rpc('preset.rotate', { idx: preset.idx, deltaGroupRot: sign * num('spStep') }),
+  });
+
   function renderList(keepIdx) {
     const previous = keepIdx ?? el('spList').value;
     el('spList').replaceChildren(...presets.map((preset) =>
@@ -43,6 +62,7 @@ export function createPresetPanel(ctx) {
     el('presetCount').textContent = `${presets.length}개`;
     bar.render();
     showSelected();
+    work.render();
   }
 
   function showSelected() {
@@ -91,7 +111,23 @@ export function createPresetPanel(ctx) {
   const guard = (fn) => (...args) => void fn(...args).catch(ctx.reportError);
   const attempt = (fn) => () => { try { fn(); } catch (error) { ctx.reportError(error); } };
 
-  el('spList').addEventListener('change', showSelected);
+  /**
+   * 목록을 고르면 **시뮬레이터의 그 프리셋도 고른다**(마스터 지시 2026-08-08).
+   *
+   * ## ⚠ 작업모드일 때만 시뮬레이터를 두드린다
+   *
+   * 이 목록은 **파일**에서 온 것이고 시뮬레이터의 프리셋과 **다른 축**이다(§파일 상단).
+   * 파일에 6건이 있고 시뮬레이터가 비어 있으면, 목록을 훑는 것만으로 매번 오류가 난다.
+   * 작업모드가 "지금 나는 시뮬레이터를 몰고 있다"는 선언이므로 그때만 부른다 —
+   * 실패는 **삼키지 않고** 말한다(고른 줄 알고 키보드를 누르면 엉뚱한 것이 움직인다).
+   */
+  el('spList').addEventListener('change', () => {
+    showSelected();
+    work.render();
+    const preset = selected();
+    if (!work.isOn() || !preset) return;
+    void ctx.rpc('preset.select', { idx: preset.idx }).catch(ctx.reportError);
+  });
 
   el('spAdd').addEventListener('click', attempt(() => {
     // 번호는 비어 있으면 자동으로 매기고 사람이 적었으면 그것을 쓴다 —
@@ -211,7 +247,35 @@ export function createPresetPanel(ctx) {
     ctx.toast(`시뮬레이터가 ${name} 을 열었습니다`, 'ok');
   }));
 
+  /**
+   * 영상 클릭. **Ctrl+왼쪽 = 클릭한 자리로 프리셋을 옮긴다**(마스터 지시 2026-08-08).
+   *
+   * `preset.move` 의 **절대(`to`)** 를 쓴다 — 방향 패드가 쓰는 상대(`delta`)로 하려면 지금
+   * 위치를 알아야 하고, 그 값은 우리가 아니라 시뮬레이터가 갖고 있다. 한 번 더 물어
+   * 빼는 것보다 "여기로 가라"고 말하는 편이 짧고, 중간에 누가 옮겨도 어긋나지 않는다.
+   *
+   * 그냥 클릭은 **아무 일도 하지 않는다.** 프리셋을 영상에서 집는 수단이 없기 때문이다
+   * (`view.pick` 은 차량 액터만 알려준다) — 목록으로 고른다.
+   */
+  async function viewportClick({ ctrl, ground }) {
+    if (!ctrl) return;
+    const preset = selected();
+    if (!preset) throw new Error('프리셋을 선택하세요');
+    // 빗나간 클릭에 좌표를 지어내지 않는다 — 프리셋이 하늘로 날아간다.
+    if (!ground) return ctx.toast('그 방향은 지면과 만나지 않습니다 — 지면 쪽을 클릭하세요.', 'err');
+    // 높이(z)는 보내지 않는다. 클릭이 맞힌 것은 지형이고 프리셋의 높이는 사람이 정한
+    // Offset Z 라, 여기서 덮어쓰면 「상세」의 값과 시뮬레이터가 조용히 갈린다.
+    await ctx.rpc('preset.move', { idx: preset.idx, to: { x: ground.x, y: ground.y } });
+    ctx.toast(`프리셋 ${preset.idx} 를 (${fmt(ground.x, 2)}, ${fmt(ground.y, 2)}) 로 옮겼습니다 — 시뮬레이터만 바뀝니다`, 'ok');
+  }
+
   return {
+    isWorkMode: work.isOn,
+    onKey: work.onKey,
+    onViewportClick: viewportClick,
+    /** 이 탭이 클릭으로 하는 일. 껍데기의 「영상 클릭」 안내가 그대로 적는다. */
+    clickHelp: 'Ctrl+왼쪽 클릭 = 고른 프리셋을 그 자리로 옮깁니다 (시뮬레이터만 바뀝니다).',
+
     // 파일도 시뮬레이터도 자동으로 읽지 않는다 — 편집 중인 목록을 덮어쓰면 안 되고,
     // 탭을 여는 것만으로 시뮬레이터를 두드릴 이유도 없다.
     onActivate() { renderList(); },
