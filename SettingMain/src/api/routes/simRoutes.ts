@@ -8,7 +8,7 @@ import {
 import { rpcToFile, vec3 } from '../../sim/simCoords.js';
 import type { Vec3 } from '../../sim/simCoords.js';
 import {
-  poseFrom, projectToScreen, screenToGround,
+  moveAlongView, poseFrom, projectToScreen, screenToGround, viewPoseFrom,
   type CameraPose, type ScreenPoint,
 } from '../../sim/simProject.js';
 import { SimRpcClient, SimRpcError } from '../../sim/simRpcClient.js';
@@ -121,6 +121,28 @@ export const simRoutes: RouteHandler = async (ctx) => {
     const pose = poseFrom(camera);
     if (!pose) throw new SimRpcError(`카메라 ${request.camId} 의 자세를 읽지 못했습니다`, 502);
     sendJson(res, 200, { camId: request.camId, pose, ...pick(pose, request, list) });
+    return true;
+  }
+
+  // 메인 뷰를 제 시선 기준으로 한 걸음 옮긴다(WASD).
+  //
+  // 화면이 직접 계산하지 않는 이유는 `/api/sim/pick` 과 같다 — 카메라 규약이 두 곳에 있으면
+  // 한쪽만 고쳐지고, 그 실패는 오류로 뜨지 않는다. 특히 **메인 뷰의 pitch 는 양수가 위**로
+  // `cam.setTilt` 와 반대라, 그 부호가 화면에도 있으면 언젠가 반드시 갈린다.
+  if (method === 'POST' && pathname === '/api/sim/view/move') {
+    const body = await readJsonBody(req);
+    const axis = body.axis === 'forward' || body.axis === 'right' ? body.axis : null;
+    const distance = Number(body.distance);
+    if (!axis) throw new SimRpcError('axis 는 forward 또는 right 여야 합니다', 400);
+    if (!Number.isFinite(distance) || distance === 0) throw new SimRpcError('distance(m) 가 필요합니다', 400);
+
+    const client = new SimRpcClient({ ...config.simTool, fetchImpl: deps.fetchImpl });
+    // **지금 자세를 여기서 읽는다.** 화면이 들고 있는 값을 믿으면, 다른 곳에서 시점을
+    // 움직였을 때 그 옛 값 위에 걸음을 쌓아 엉뚱한 자리로 간다.
+    const view = viewPoseFrom(await client.call('view.get', {}));
+    if (!view) throw new SimRpcError('메인 뷰의 자세를 읽지 못했습니다', 502);
+    const pos = moveAlongView(view.pos, view.rot, axis, distance);
+    sendJson(res, 200, { moved: axis, distance, result: await client.call('view.set', { pos }) });
     return true;
   }
 

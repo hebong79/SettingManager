@@ -227,6 +227,10 @@ export const ROUTE_CATALOG: readonly RouteCatalogEntry[] = [
     notes: '{ camId, x, y, width, height, groundZ } — 시뮬레이터에 cam.get·car.list 를 묻기만 한다(읽기). 화각 상수 56.5°(줌 1배)는 실측이며 규칙은 src/sim/simProject.ts 한 곳에 있다.',
   },
   {
+    method: 'POST', path: '/api/sim/view/move', title: '메인 뷰를 시선 기준으로 한 걸음', mutating: false, movesCamera: true,
+    notes: '{ axis: forward|right, distance } — 미터. 지금 자세를 view.get 으로 읽어 옮기므로 호출자가 좌표를 계산하지 않는다. 메인 뷰의 pitch 는 양수가 위로 cam.setTilt 와 반대이며, 그 규약은 src/sim/simProject.ts 한 곳에 있다.',
+  },
+  {
     // **한 경로에 80가지 행위가 들어 있다.** 실제 행위는 본문의 `method` 가 정하므로
     // 이 항목 하나로는 안전한 것과 위험한 것을 가를 수 없다. 그래서 가장 위험한 쪽에
     // 맞춰 표시한다 — `cam.setPTZ` 처럼 카메라를 실제로 돌리는 것이 목록에 있다.

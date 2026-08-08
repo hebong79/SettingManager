@@ -492,7 +492,9 @@
         <section class="card commissioning-view">
           <h2>시뮬레이터 뷰 <span class="tag" id="simStreamTag">정지</span></h2>
           <div class="viewport" id="simViewport">
-            <img id="simStream" alt="시뮬레이터 카메라 영상">
+            <!-- draggable=false: 안 그러면 왼쪽 버튼으로 끌 때 브라우저가 이 이미지를
+                 드래그앤드롭으로 집어, 영상 위 조작이 그 자리에서 끊긴다. -->
+            <img id="simStream" alt="시뮬레이터 카메라 영상" draggable="false">
             <div class="stream-click-marker" id="simClickMarker" hidden></div>
             <div class="placeholder" id="simPlaceholder">영상은 자동으로 시작하지 않습니다. 카메라를 고르고 「시작」을 누르세요.</div>
           </div>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  WIDE_HFOV_DEG, halfExtent, poseFrom, projectToScreen, screenToGround,
+  WIDE_HFOV_DEG, halfExtent, moveAlongView, poseFrom, projectToScreen, screenToGround, viewPoseFrom,
   type CameraPose,
 } from '../src/sim/simProject.js';
 
@@ -139,5 +139,64 @@ describe('cam.get 읽기', () => {
     expect(poseFrom({ pos: { x: 1, y: 2 }, pan: 0, tilt: 0, zoom: 1 })).toBeNull();
     expect(poseFrom({ pos: { x: 1, y: 2, z: 3 }, pan: 0, tilt: 0 })).toBeNull();
     expect(poseFrom(null)).toBeNull();
+  });
+});
+
+/**
+ * 메인 뷰 WASD. 숫자는 **2026-08-08 라이브 실측**의 자세에서 왔다 —
+ * `view.get` → `pos(-15,0,15) · pitch -45 · yaw 0`.
+ *
+ * 이 계약이 깨지면 오류가 나지 않는다. **카메라가 엉뚱한 쪽으로 갈 뿐**이고,
+ * 특히 pitch 부호는 `cam.setTilt`(양수=하향)와 반대라 "정리"하기 딱 좋은 자리다.
+ */
+describe('메인 뷰 이동 (moveAlongView)', () => {
+  const at = { x: -15, y: 0, z: 15 };
+  const down45 = { pitch: -45, yaw: 0 };
+  const near = (got: number, want: number) => expect(got).toBeCloseTo(want, 6);
+
+  it('앞으로 = 보는 방향 — 내려다보고 있으면 내려간다', () => {
+    const next = moveAlongView(at, down45, 'forward', Math.SQRT2);
+    near(next.x, -14); // cos(-45)·√2 = 1
+    near(next.y, 0);
+    near(next.z, 14);  // sin(-45)·√2 = -1  ← 양수가 위이므로 내려간다
+  });
+
+  it('뒤로 = 부호만 뒤집는다 — 뚫고 내려가도 되돌아올 수 있다', () => {
+    const forth = moveAlongView(at, down45, 'forward', 3);
+    const back = moveAlongView(forth, down45, 'forward', -3);
+    near(back.x, at.x);
+    near(back.z, at.z);
+  });
+
+  it('좌우는 높이를 지킨다 — 내려다보는 중에도 z 가 그대로다', () => {
+    const right = moveAlongView(at, down45, 'right', 2);
+    near(right.z, 15);
+    near(right.y, 2);  // yaw 0 에서 오른쪽은 +Y (언리얼 규약)
+    near(right.x, -15);
+  });
+
+  it('yaw 90° 를 보면 오른쪽이 -X 다 — 회전이 축에 실제로 반영된다', () => {
+    const right = moveAlongView(at, { pitch: 0, yaw: 90 }, 'right', 2);
+    near(right.x, -17);
+    near(right.y, 0);
+  });
+
+  it('수평으로 볼 때 앞으로 가면 높이가 안 변한다', () => {
+    const next = moveAlongView(at, { pitch: 0, yaw: 0 }, 'forward', 5);
+    near(next.x, -10);
+    near(next.z, 15);
+  });
+});
+
+describe('viewPoseFrom', () => {
+  it('view.get 응답에서 위치·회전을 뽑는다', () => {
+    expect(viewPoseFrom({ pos: { x: -15, y: 0, z: 15 }, rot: { pitch: -45, yaw: 0 }, fov: 90 }))
+      .toEqual({ pos: { x: -15, y: 0, z: 15 }, rot: { pitch: -45, yaw: 0 } });
+  });
+
+  it('자리가 비면 null 이다 — 0 으로 채우면 원점에서 정면을 보는 셈이 된다', () => {
+    expect(viewPoseFrom({ pos: { x: 1, y: 2 }, rot: { pitch: 0, yaw: 0 } })).toBeNull();
+    expect(viewPoseFrom({ pos: { x: 1, y: 2, z: 3 } })).toBeNull();
+    expect(viewPoseFrom(null)).toBeNull();
   });
 });

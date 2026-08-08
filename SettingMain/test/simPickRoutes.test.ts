@@ -40,11 +40,23 @@ const CARS = [
 /** 자세만 바꿔 끼울 수 있게 해 둔다 — 조준 상태를 시험에서 정한다. */
 let pose = { ...CAM_GET };
 
+/** 메인 뷰 자세(실측 원문). `view.set` 이 오면 여기에 반영해 왕복을 흉내 낸다. */
+const VIEW_GET = { pos: { x: -15, y: 0, z: 15 }, rot: { pitch: -45, yaw: 0 }, fov: 90, streamPort: 13600 };
+let viewPose = { ...VIEW_GET };
+let viewSetParams: Record<string, unknown> = {};
+
 const fakeFetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
   const body = JSON.parse(String(init?.body ?? '{}')) as { method: string };
   rpcCalls.push(body.method);
   if (body.method === 'cam.get') return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: pose }));
   if (body.method === 'car.list') return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { cars: CARS } }));
+  // 메인 뷰. 실측 자세: pos(-15,0,15) · pitch -45 · yaw 0 · fov 90 · streamPort 13600.
+  if (body.method === 'view.get') return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: viewPose }));
+  if (body.method === 'view.set') {
+    viewSetParams = (body as unknown as { params?: Record<string, unknown> }).params ?? {};
+    viewPose = { ...viewPose, ...(viewSetParams.pos ? { pos: viewSetParams.pos } : {}) } as typeof viewPose;
+    return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: viewPose }));
+  }
   return new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32601, message: `Method not found: ${body.method}` } }));
 }) as unknown as typeof fetch;
 
@@ -60,6 +72,8 @@ beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'settingmanager-simpick-'));
   rpcCalls = [];
   pose = { ...CAM_GET };
+  viewPose = { ...VIEW_GET };
+  viewSetParams = {};
   await writeFile(join(dir, 'config.json'), JSON.stringify({
     server: { host: '127.0.0.1', port: 0 },
     simTool: { rpcUrl: 'http://127.0.0.1:13510/rpc', timeoutMs: 2000 },
@@ -142,5 +156,50 @@ describe('POST /api/sim/pick', () => {
   it('카메라를 움직이지 않는다 — 읽기 두 번뿐이다', async () => {
     await pick({ camId: 1, x: 100, y: 100, width: 1280, height: 720 });
     expect(rpcCalls).not.toContain('cam.setPTZ');
+  });
+});
+
+/**
+ * `POST /api/sim/view/move` — 메인 뷰 WASD.
+ *
+ * 지키는 것은 **방향 규약이 서버 한 곳에 있다**는 것이다. 화면이 yaw·pitch 로 방향을
+ * 직접 만들면 규약이 두 벌이 되고, 그 실패는 오류로 뜨지 않는다 — 카메라가 조금
+ * 엇나간 쪽으로 갈 뿐이다. 특히 메인 뷰의 pitch 는 `cam.setTilt` 와 **부호가 반대**다.
+ */
+describe('POST /api/sim/view/move', () => {
+  const move = async (payload: Record<string, unknown>): Promise<{ status: number; body: any }> => {
+    const response = await fetch(`${base}/api/sim/view/move`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    const text = await response.text();
+    return { status: response.status, body: text ? JSON.parse(text) : {} };
+  };
+
+  it('앞으로 = 보는 방향 — 내려다보고 있으면 높이도 내려간다', async () => {
+    const { status, body } = await move({ axis: 'forward', distance: Math.SQRT2 });
+    expect(status).toBe(200);
+    const pos = viewSetParams.pos as { x: number; y: number; z: number };
+    expect(pos.x).toBeCloseTo(-14, 6);
+    expect(pos.z).toBeCloseTo(14, 6);
+    expect(body.result.pos.z).toBeCloseTo(14, 6);
+  });
+
+  it('좌우는 높이를 지킨다', async () => {
+    await move({ axis: 'right', distance: 2 });
+    const pos = viewSetParams.pos as { x: number; y: number; z: number };
+    expect(pos.y).toBeCloseTo(2, 6);
+    expect(pos.z).toBeCloseTo(15, 6);
+  });
+
+  /** 화면이 들고 있는 옛 자세 위에 걸음을 쌓으면 엉뚱한 자리로 간다. */
+  it('지금 자세를 서버가 직접 읽는다 — view.get 이 먼저다', async () => {
+    await move({ axis: 'forward', distance: 1 });
+    expect(rpcCalls).toEqual(['view.get', 'view.set']);
+  });
+
+  it('축과 거리를 검사한다 — 없는 축이나 0 거리는 400', async () => {
+    expect((await move({ axis: 'up', distance: 1 })).status).toBe(400);
+    expect((await move({ axis: 'forward', distance: 0 })).status).toBe(400);
+    expect((await move({ axis: 'forward' })).status).toBe(400);
   });
 });

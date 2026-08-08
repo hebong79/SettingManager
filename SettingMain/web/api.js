@@ -132,6 +132,9 @@ export const api = {
   simPick: (camId, x, y, width, height, groundZ = 0) =>
     request('POST', '/api/sim/pick', { camId, x, y, width, height, groundZ }),
 
+  /** 메인 뷰 WASD. 방향 벡터는 **서버가** 만든다 — 화면이 카메라 규약을 한 벌 더 갖지 않는다. */
+  simViewMove: (axis, distance) => request('POST', '/api/sim/view/move', { axis, distance }),
+
   settings: () => request('GET', '/api/settings'),
   saveSettings: (patch) => request('PUT', '/api/settings', patch),
 };

@@ -38,8 +38,24 @@ const fmt = (v, digits = 1) => (typeof v === 'number' && Number.isFinite(v) ? v.
  * 그것을 부른다. 이 버튼이 없으면 휠을 한 번 굴린 사람이 원상복구를 못 한다.
  */
 
-/** 이만큼 안 움직이면 드래그가 아니라 클릭이다. 손떨림으로 클릭이 회전이 되면 안 된다. */
+/**
+ * 회전은 **오른쪽 버튼**이다(마스터 지시 2026-08-08).
+ *
+ * 왼쪽 버튼으로 끌면 브라우저가 `<img>` 를 **드래그앤드롭으로 집어** 회전이 성립하지 않는다.
+ * 오른쪽으로 옮기니 부수 효과가 하나 더 생겼다 — **왼쪽은 순수한 클릭이 되어** 「끈 것인가
+ * 누른 것인가」를 가릴 필요가 사라졌다. 언리얼 뷰포트도 오른쪽 버튼으로 시선을 돌린다.
+ */
+const ROTATE_BUTTON = 2;
+/** `MouseEvent.buttons` 의 오른쪽 비트. `button`(어느 것을 눌렀나)과 다른 값이다. */
+const ROTATE_BUTTONS_BIT = 2;
+/** 이만큼 안 움직이면 회전으로 치지 않는다(손떨림). */
 const DRAG_THRESHOLD_PX = 4;
+/**
+ * WASD 한 걸음(m). 키 반복(누르고 있기)을 막지 않으므로 **누른 시간에 비례해 나아간다** —
+ * 반복 1회가 한 걸음이고, 밀린 것은 아래 합치기가 모아 한 번에 보낸다.
+ * 5fps 라 부드럽게는 안 가고 **띄엄띄엄 간다**.
+ */
+const MOVE_STEP_M = 1;
 /** 화각 한계. 언리얼은 0 초과 180 미만을 받지만, 양 끝은 쓸모가 없어 더 좁게 잡는다. */
 const FOV_MIN = 10;
 const FOV_MAX = 150;
@@ -55,6 +71,8 @@ export function createViewControl(ctx) {
   let inFlight = false;
   /** 아직 못 보낸 마지막 희망값. `{rot?, fov?}` — 나중 것이 앞의 것을 덮는다. */
   let pending = null;
+  /** WASD 한 걸음이 오가는 중인가. 회전과 달리 **덮어쓰지 않고 흘려보낸다**(§step). */
+  let moving = false;
 
   // 드래그 상태
   let pressed = false;
@@ -89,8 +107,9 @@ export function createViewControl(ctx) {
    */
   function showPose() {
     const box = el('simViewPose');
+    const at = pose?.pos;
     box.textContent = available && pose
-      ? `pitch ${fmt(rot().pitch)}° · yaw ${fmt(rot().yaw)}° · 화각 ${fmt(fov())}°`
+      ? `(${fmt(at?.x)}, ${fmt(at?.y)}, ${fmt(at?.z)}) · pitch ${fmt(rot().pitch)}° · yaw ${fmt(rot().yaw)}° · 화각 ${fmt(fov())}°`
       : '-';
   }
 
@@ -99,6 +118,7 @@ export function createViewControl(ctx) {
     pending = { ...(pending ?? {}), ...patch };
     // 화면 숫자는 응답을 기다리지 않는다 — 사람이 즉시 되먹임을 받아야 한다.
     if (patch.rot) pose = { ...(pose ?? {}), rot: patch.rot };
+    if (patch.pos) pose = { ...(pose ?? {}), pos: patch.pos };
     if (typeof patch.fov === 'number') pose = { ...(pose ?? {}), fov: patch.fov };
     showPose();
     void flush();
@@ -139,7 +159,7 @@ export function createViewControl(ctx) {
   }
 
   function onDown(event) {
-    if (event.button !== 0 || !available) return;
+    if (event.button !== ROTATE_BUTTON || !available) return;
     pressed = true;
     dragged = false;
     startX = lastX = event.clientX;
@@ -148,10 +168,10 @@ export function createViewControl(ctx) {
 
   function onMove(event) {
     if (!pressed || !available) return;
-    // **놓친 `mouseup` 을 여기서 회수한다.** 팝업 메뉴 위나 창 밖에서 버튼을 떼면 그 이벤트가
-    // 우리에게 오지 않아, 버튼을 놓았는데도 마우스만 움직이면 시점이 계속 돈다.
+    // **놓친 `mouseup` 을 여기서 회수한다.** 창 밖에서 버튼을 떼면 그 이벤트가 우리에게 오지
+    // 않아, 버튼을 놓았는데도 마우스만 움직이면 시점이 계속 돈다.
     // `buttons` 는 지금 눌려 있는 버튼이라 그 상태를 매 이동마다 확인할 수 있다.
-    if ((event.buttons & 1) === 0) {
+    if ((event.buttons & ROTATE_BUTTONS_BIT) === 0) {
       pressed = false;
       dragged = false;
       return;
@@ -173,12 +193,51 @@ export function createViewControl(ctx) {
     });
   }
 
-  /** 손을 뗐다. **드래그였는지**를 껍데기에 알려 준다 — 아니면 그것은 클릭이다. */
+  /**
+   * 손을 뗐다. 회전이 오른쪽 버튼으로 옮겨간 뒤로 **왼쪽 클릭과 겹치지 않으므로**
+   * 「끈 것인가 누른 것인가」를 껍데기에 알려 줄 필요가 없다 — 상태만 지운다.
+   */
   function onUp() {
-    const wasDrag = dragged;
     pressed = false;
     dragged = false;
-    return wasDrag;
+  }
+
+  /** WASD → 어느 축으로 얼마나. **물리 키 위치**라 자판 배치·입력기와 무관하다. */
+  const STEPS = {
+    KeyW: ['forward', 1],
+    KeyS: ['forward', -1],
+    KeyD: ['right', 1],
+    KeyA: ['right', -1],
+  };
+
+  /**
+   * WASD 이동. **방향 벡터는 서버가 만든다**(`/api/sim/view/move`).
+   *
+   * 화면이 yaw·pitch 로 방향을 직접 계산하면 카메라 규약이 두 벌이 되고, 그 실패는 오류로
+   * 뜨지 않는다 — 카메라가 조금 엇나간 쪽으로 갈 뿐이다. 특히 **메인 뷰의 pitch 는 양수가
+   * 위**로 `cam.setTilt` 와 반대라, 그 부호가 화면에도 있으면 언젠가 반드시 갈린다.
+   * (이 저장소는 그 규율을 테스트로 지킨다 — 화면 스크립트에 삼각함수를 두지 않는다.)
+   *
+   * 서버가 **지금 자세를 직접 읽어** 옮기므로, 다른 곳에서 시점을 움직였어도 옛 값 위에
+   * 걸음을 쌓지 않는다.
+   *
+   * 키를 누르고 있으면 반복이 들어오지만 **한 번에 하나만 보낸다** — 오는 족족 보내면
+   * 손을 뗀 뒤에도 한참 더 나아간다. 왕복 한 번에 한 걸음이라 대략 초당 5걸음이다.
+   */
+  function step(code) {
+    const wanted = STEPS[code];
+    if (!wanted || !available) return false;
+    if (moving) return true;   // 눌린 것은 맞으므로 브라우저 기본 동작은 막는다
+    moving = true;
+    const [axis, sign] = wanted;
+    void ctx.move(axis, sign * MOVE_STEP_M)
+      .then((answer) => {
+        // 응답이 정본이다 — 우리가 보낸 걸음이 아니라 시뮬레이터가 실제로 간 자리를 적는다.
+        if (answer?.result) { pose = answer.result; showPose(); }
+      })
+      .catch(ctx.reportError)
+      .finally(() => { moving = false; });
+    return true;
   }
 
   /** 휠 = 화각. 위로 굴리면 좁아진다(당겨 본다). */
@@ -219,6 +278,7 @@ export function createViewControl(ctx) {
     onMove,
     onUp,
     onWheel,
+    step,
     lookAt,
     resetFov,
     showPose,

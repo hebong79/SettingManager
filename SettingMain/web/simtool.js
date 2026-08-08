@@ -87,6 +87,8 @@ const viewControl = createViewControl({
   toast,
   reportError,
   image: () => el('simStream'),
+  /** WASD. **방향 계산은 서버가 한다** — 화면이 카메라 규약을 한 벌 더 갖지 않는다. */
+  move: (axis, distance) => api.simViewMove(axis, distance),
 });
 
 const panels = [
@@ -379,7 +381,7 @@ function updateViewNote() {
     note.textContent = '이 시뮬레이터에는 view.* 가 없어 시점을 움직일 수 없습니다 — 언리얼에 ViewRpcModule 이 배포돼야 합니다.';
   } else {
     note.className = 'hint ready';
-    note.textContent = '드래그로 시점 회전 · 휠로 화각.'
+    note.textContent = '오른쪽 버튼으로 끌면 시점 회전 · 휠로 화각 · W/S 앞뒤(보는 방향) · A/D 좌우.'
       + (off
         ? ' 더블클릭하면 그 지점을 바라봅니다.'
         : ' (더블클릭 조준은 「영상 클릭」을 「쓰지 않음」으로 두어야 씁니다 — 클릭 배치와 겹칩니다.)')
@@ -513,10 +515,24 @@ el('simViewport').addEventListener('contextmenu', (event) => event.preventDefaul
 el('simViewport').addEventListener('mousedown', (event) => { if (isMainView()) viewControl.onDown(event); });
 addEventListener('mousemove', (event) => viewControl.onMove(event));
 addEventListener('mouseup', (event) => {
-  const wasDrag = viewControl.onUp();
-  if (wasDrag || event.button !== 0) return;
+  viewControl.onUp();
+  if (event.button !== 0) return;
   if (!el('simViewport').contains(event.target)) return;
   void viewportClick(event).catch(reportError);
+});
+
+/**
+ * WASD 이동. **입력칸에 글자를 넣는 중이면 손대지 않는다** — 좌표를 타이핑하다 'a' 를
+ * 눌렀는데 카메라가 옆으로 가면 안 된다. 조합키(Ctrl·Alt·⌘)도 비켜 준다(브라우저 단축키).
+ *
+ * 키는 **물리 위치**(`event.code`)로 본다 — 한글 입력 상태에서 `event.key` 는 'ㅈ'·'ㅁ' 이라
+ * `key` 로 판정하면 한글일 때 WASD 가 통째로 죽는다.
+ */
+addEventListener('keydown', (event) => {
+  if (!isMainView() || event.ctrlKey || event.altKey || event.metaKey) return;
+  const tag = event.target?.tagName;
+  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || event.target?.isContentEditable) return;
+  if (viewControl.step(event.code)) event.preventDefault();
 });
 // `passive:false` 여야 preventDefault 가 먹는다 — 아니면 휠이 페이지를 함께 스크롤한다.
 el('simViewport').addEventListener('wheel', (event) => { if (isMainView()) viewControl.onWheel(event); }, { passive: false });

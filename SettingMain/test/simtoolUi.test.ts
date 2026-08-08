@@ -158,7 +158,41 @@ describe('메인 뷰 조작', () => {
    * 마우스만 움직이면 시점이 계속 돈다.** 매 이동마다 `buttons` 로 회수한다.
    */
   it('놓친 mouseup 을 회수한다 — 버튼이 떨어져 있으면 회전을 멈춘다', async () => {
-    expect(stripComments(await read('simtoolViewControl.js'))).toMatch(/event\.buttons\s*&\s*1/);
+    expect(stripComments(await read('simtoolViewControl.js'))).toMatch(/event\.buttons\s*&\s*ROTATE_BUTTONS_BIT/);
+  });
+
+  /**
+   * 회전은 **오른쪽 버튼**이다(마스터 지시). 왼쪽으로 끌면 브라우저가 `<img>` 를
+   * 드래그앤드롭으로 집어 회전이 성립하지 않는다.
+   */
+  it('회전은 오른쪽 버튼이다', async () => {
+    const source = stripComments(await read('simtoolViewControl.js'));
+    expect(source).toMatch(/ROTATE_BUTTON\s*=\s*2/);
+    expect(source).toMatch(/event\.button\s*!==\s*ROTATE_BUTTON/);
+  });
+
+  /** 왼쪽으로 끌 때 브라우저가 영상을 집어 가면 그 자리에서 조작이 끊긴다. */
+  it('영상을 브라우저가 끌고 가지 못하게 한다', async () => {
+    expect(await read('simtool.html')).toMatch(/id="simStream"[^>]*draggable="false"/);
+  });
+
+  /**
+   * ⚠ `event.key` 로 보면 **한글 입력 상태에서 WASD 가 통째로 죽는다**('ㅈ'·'ㅁ'·'ㄴ'·'ㅇ').
+   * 물리 키 위치인 `event.code` 로 봐야 배치·입력기와 무관하게 동작한다.
+   */
+  it('WASD 는 자판 배치가 아니라 물리 키 위치로 본다', async () => {
+    const source = stripComments(await read('simtoolViewControl.js'));
+    for (const code of ['KeyW', 'KeyA', 'KeyS', 'KeyD']) expect(source, code).toContain(code);
+    expect(stripComments(await read('simtool.js'))).toContain('event.code');
+  });
+
+  /** 좌표를 타이핑하다 'a' 를 눌렀는데 카메라가 옆으로 가면 안 된다. */
+  it('입력칸에 글자를 넣는 중에는 WASD 가 카메라를 움직이지 않는다', async () => {
+    const source = stripComments(await read('simtool.js'));
+    const handler = source.slice(source.indexOf("addEventListener('keydown'"));
+    for (const tag of ['INPUT', 'SELECT', 'TEXTAREA']) expect(handler, tag).toContain(tag);
+    // 브라우저 단축키(Ctrl+S 등)도 비켜 준다.
+    expect(handler).toContain('ctrlKey');
   });
 
   /** 되는 기능을 「신설이 필요합니다」로 안내하고 있으면 아무도 쓰지 않는다. */
@@ -361,6 +395,7 @@ describe('시뮬레이터 툴의 독립', () => {
     const surface = [...block.matchAll(/^\s{2}(sim\w+):/gm)].map((m) => m[1]);
     expect(surface).toEqual([
       'simCatalog', 'simCarCatalog', 'simFiles', 'simFile', 'simParseFile', 'simSerialize', 'simRpc', 'simPick',
+      'simViewMove',
     ]);
     for (const path of [...block.matchAll(/['`](\/api\/[^'`]*)/g)].map((m) => m[1])) {
       expect(path, path).toMatch(/^\/api\/sim\//);

@@ -143,6 +143,59 @@ export function screenToGround(
   return { x: pose.pos.x + dx * t, y: pose.pos.y + dy * t, z: groundZ };
 }
 
+// --- 메인 뷰(자유 시점) 이동 ------------------------------------------------
+//
+// 위쪽은 PTZ 카메라의 월드↔화면이고, 여기는 **메인 뷰를 WASD 로 옮기는 것**이다.
+// 다른 일이지만 같은 자리에 둔다 — 화면(브라우저)이 카메라 규약을 한 벌 더 갖는 것을
+// 막는 것이 이 파일의 존재 이유이고, 방향 벡터도 그 규약의 일부다.
+//
+// ⚠ 메인 뷰는 `cam.*` 와 **부호 규약이 다르다**: `view` 의 pitch 는 **양수가 위**이고
+//   `cam` 의 tilt 는 양수가 하향이다. 그 차이가 이 함수 안에 갇혀 있어야 한다.
+
+/** 메인 뷰가 갈 수 있는 방향. `forward` 는 보는 쪽, `right` 는 오른쪽이다. */
+export type ViewAxis = 'forward' | 'right';
+
+/**
+ * 메인 뷰를 제 시선 기준으로 `distance` 미터만큼 옮긴 자리.
+ *
+ * 언리얼 규약(X 앞 · Y 오른쪽 · Z 위, roll = 0):
+ * ```
+ *   forward = (cos p · cos y,  cos p · sin y,  sin p)   ← pitch 를 포함한다
+ *   right   = (−sin y,         cos y,          0    )   ← 항상 수평이다
+ * ```
+ *
+ * 그래서 **앞뒤는 보는 방향으로** 가고(내려다보고 있으면 내려간다 — 언리얼 뷰포트와 같다),
+ * **좌우는 높이를 지키며** 간다. 지면을 뚫고 내려가도 반대로 누르면 되돌아오므로,
+ * 위아래 전용 키가 없어도 갇히지 않는다.
+ */
+export function moveAlongView(
+  pos: Vec3,
+  rot: { pitch: number; yaw: number },
+  axis: ViewAxis,
+  distance: number,
+): Vec3 {
+  const yaw = (rot.yaw * Math.PI) / 180;
+  const pitch = (rot.pitch * Math.PI) / 180;
+  const unit = axis === 'forward'
+    ? [Math.cos(pitch) * Math.cos(yaw), Math.cos(pitch) * Math.sin(yaw), Math.sin(pitch)]
+    : [-Math.sin(yaw), Math.cos(yaw), 0];
+  return {
+    x: pos.x + unit[0]! * distance,
+    y: pos.y + unit[1]! * distance,
+    z: pos.z + unit[2]! * distance,
+  };
+}
+
+/** `view.get` 응답에서 위치·회전을 뽑는다. 숫자가 아닌 자리는 받아들이지 않는다. */
+export function viewPoseFrom(raw: unknown): { pos: Vec3; rot: { pitch: number; yaw: number } } | null {
+  const source = (raw ?? {}) as Record<string, unknown>;
+  const pos = (source.pos ?? {}) as Record<string, unknown>;
+  const rot = (source.rot ?? {}) as Record<string, unknown>;
+  const nums = [pos.x, pos.y, pos.z, rot.pitch, rot.yaw].map(Number);
+  if (nums.some((value) => !Number.isFinite(value))) return null;
+  return { pos: { x: nums[0]!, y: nums[1]!, z: nums[2]! }, rot: { pitch: nums[3]!, yaw: nums[4]! } };
+}
+
 /** `cam.get` 응답에서 자세를 뽑는다. 숫자가 아닌 자리는 받아들이지 않는다. */
 export function poseFrom(raw: unknown): CameraPose | null {
   const source = (raw ?? {}) as Record<string, unknown>;
