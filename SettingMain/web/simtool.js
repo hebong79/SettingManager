@@ -76,6 +76,11 @@ const ctx = {
   cameras: () => cameras,
   refreshCameras: loadCameras,
   connected: () => Boolean(rpcUrl),
+  /**
+   * 어느 탭이 「작업모드」를 켜고 껐다. **메인 뷰 안내가 누가 키보드를 갖고 있는지**
+   * 말해야 한다 — 안 말하면 WASD 가 시점을 안 움직이는 것이 고장으로 읽힌다.
+   */
+  workModeChanged: () => { updateClickNote(); },
 };
 
 /**
@@ -178,6 +183,8 @@ const OFFLINE_OK = new Set([
   'spIdx', 'spName', 'spFaceCount', 'spCamIdx', 'spOffsetX', 'spOffsetY', 'spOffsetZ',
   'spGroupRot', 'spFaceRot', 'spXSize', 'spZSize', 'spDirType', 'spBaseWidth', 'spStep',
   'spModeMove', 'spModeRotate',
+  // ⚠ 작업모드 토글(`spWork`·`carWork`·`camWork`)은 **일부러 빼 두었다** — 켜 봐야
+  // 시뮬레이터가 없으면 키보드도 Ctrl+클릭도 실패한다. 꺼져 있는 것이 맞는 안내다.
   // 차량 배치
   'carNew', 'carOpen', 'carOpenInput', 'carSave', 'carAdd', 'carUpdate', 'carDelete', 'carList',
   'carPrefab', 'carType', 'carPresetId', 'carCount', 'carSpacing', 'carVertical',
@@ -335,22 +342,28 @@ function isMainView() {
   return port > 0 && port === viewControl.mainStreamPort();
 }
 
-/** 클릭이 되는 상태인지, 안 되면 왜 안 되는지 한 줄로 말한다. */
+/**
+ * 클릭이 되는 상태인지, 안 되면 왜 안 되는지 한 줄로 말한다.
+ *
+ * ## 전역 「영상 클릭」 드롭다운을 없앴다 (마스터 결정 2026-08-08)
+ *
+ * 클릭 의미의 정본은 이제 **「활성 탭 + Ctrl 여부」 한 곳**이다. 지시 3~5 가 같은 왼쪽
+ * 클릭을 탭마다 다르게 정의했으므로, 전역 모드를 함께 두면 정본이 둘이 되고 화면은
+ * 그 곱(3모드 × 5탭)을 설명해야 한다. 무엇을 하는지는 **탭이 스스로 말한다**(`clickHelp`).
+ */
 function updateClickNote() {
-  const mode = el('simClickMode').value;
   const note = el('simClickNote');
+  const help = active?.panel?.clickHelp;
   const main = isMainView();
   const camId = projectionCamId();
-  if (mode === 'off') {
+  if (!help) {
     note.className = 'hint';
-    note.textContent = '영상 클릭을 쓰지 않습니다.';
+    note.textContent = '이 탭은 영상 클릭을 쓰지 않습니다 — 프리셋 메이커·차량 배치·카메라 컨트롤에서 씁니다.';
   } else if (main) {
     // 메인 뷰는 **언리얼이 직접 맞힌다**(라인트레이스) — 지면 평면을 가정하지 않으므로
     // 경사·구조물 위도 그대로 찍힌다. 그래서 「지면 높이 z」가 필요 없다.
     note.className = 'hint ready';
-    note.textContent = mode === 'select'
-      ? '영상 위의 차량을 왼쪽 클릭하면 「차량 배치」 목록에서 그 차를 고릅니다 (메인 뷰 — 언리얼이 직접 맞힙니다).'
-      : '영상을 왼쪽 클릭하면 그 자리에 차량을 추가합니다 (메인 뷰 — 실제 지형에 맞으므로 「지면 높이 z」를 쓰지 않습니다).';
+    note.textContent = `${help} (메인 뷰 — 언리얼이 실제 지형을 맞히므로 「지면 높이 z」를 쓰지 않습니다.)`;
   } else if (!rpcUrl || !cameras.length) {
     note.className = 'hint warn';
     note.textContent = '시뮬레이터에 연결돼야 영상 클릭을 쓸 수 있습니다 — 카메라 자세를 물어야 하기 때문입니다.';
@@ -360,20 +373,27 @@ function updateClickNote() {
       + ' PTZ 카메라 영상(13601 이상)이나 메인 뷰를 고르세요.';
   } else {
     note.className = 'hint ready';
-    note.textContent = mode === 'select'
-      ? `영상 위의 차량을 왼쪽 클릭하면 「차량 배치」 목록에서 그 차를 고릅니다 (카메라 #${camId} 기준).`
-      : `영상의 빈 자리를 왼쪽 클릭하면 그 지면 좌표로 차량을 추가합니다 (카메라 #${camId} 기준).`;
+    note.textContent = `${help} (카메라 #${camId} 기준 — 「지면 높이 z」 평면으로 풉니다.)`;
   }
   // 메인 뷰는 실제 지형에 맞으므로 평면 높이를 받지 않는다.
-  el('simGroundZ').disabled = mode !== 'place' || main;
+  el('simGroundZ').disabled = !help || main;
   updateViewNote();
 }
 
-/** 메인 뷰 마우스 제어가 되는 상태인지 한 줄로 말한다. */
+/**
+ * 메인 뷰 마우스 제어가 되는 상태인지 한 줄로 말한다.
+ *
+ * **누가 키보드를 갖고 있는지 먼저 말한다.** 어느 탭이 작업모드를 켜면 `W A S D` 가 시점이
+ * 아니라 그 탭의 오브젝트로 가는데, 그 사실이 화면에 없으면 "WASD 가 안 먹는다"가 된다.
+ */
 function updateViewNote() {
   const note = el('simViewNote');
-  const off = el('simClickMode').value === 'off';
-  if (!isMainView()) {
+  const working = active?.panel?.isWorkMode?.();
+  if (working) {
+    note.className = 'hint warn';
+    note.textContent = '이 탭이 「작업모드」라 W A S D · Q E 가 선택된 오브젝트로 갑니다 —'
+      + ' 시점을 움직이려면 작업모드를 끄세요. (오른쪽 버튼 회전과 휠 화각은 그대로 됩니다.)';
+  } else if (!isMainView()) {
     note.className = 'hint';
     note.textContent = '마우스로 시점을 돌리는 것은 메인 뷰에서만 됩니다 — PTZ 카메라는 「카메라 컨트롤」 탭에서 움직입니다.';
   } else if (!viewControl.isAvailable()) {
@@ -381,10 +401,8 @@ function updateViewNote() {
     note.textContent = '이 시뮬레이터에는 view.* 가 없어 시점을 움직일 수 없습니다 — 언리얼에 ViewRpcModule 이 배포돼야 합니다.';
   } else {
     note.className = 'hint ready';
-    note.textContent = '오른쪽 버튼으로 끌면 시점 회전 · 휠로 화각 · W/S 앞뒤(보는 방향) · A/D 좌우.'
-      + (off
-        ? ' 더블클릭하면 그 지점을 바라봅니다.'
-        : ' (더블클릭 조준은 「영상 클릭」을 「쓰지 않음」으로 두어야 씁니다 — 클릭 배치와 겹칩니다.)')
+    note.textContent = '오른쪽 버튼으로 끌면 시점 회전 · 휠로 화각 · W/S 앞뒤(보는 방향) · A/D 좌우 ·'
+      + ' 더블클릭하면 그 지점을 바라봅니다.'
       + ' 영상이 초당 5장이라 조작보다 늦게 따라옵니다 — 위의 숫자가 먼저 움직입니다.';
   }
   el('simViewFovReset').disabled = !isMainView() || !viewControl.isAvailable();
@@ -426,12 +444,16 @@ function imagePoint(event) {
   };
 }
 
+/**
+ * 영상 클릭 한 번을 **활성 탭**에게 넘긴다. 무엇을 할지는 탭이 정한다 — 껍데기는
+ * 「Ctrl 이 눌려 있었나」와 「그 자리의 월드 좌표가 무엇인가」만 알려준다.
+ *
+ * 클릭을 안 받는 탭에서는 **조용히 넘어간다.** 전역 모드가 있던 시절에는 "「차량 배치」
+ * 탭에서 씁니다"라고 말해 줄 만했지만, 지금은 그냥 영상을 누르는 것도 흔한 몸짓이라
+ * 누를 때마다 오류를 띄우면 그것이 소음이 된다. 무엇이 되는지는 밑의 안내가 말한다.
+ */
 async function viewportClick(event) {
-  const mode = el('simClickMode').value;
-  if (mode === 'off') return;
-  // 클릭을 받는 탭은 「차량 배치」뿐이다. 다른 탭에서 눌렀을 때 조용히 아무 일도 없으면
-  // 사람은 기능이 고장난 줄 안다 — 어디로 가야 하는지 말한다.
-  if (!active?.panel?.onViewportClick) return toast('영상 클릭은 「차량 배치」 탭에서 씁니다.', 'err');
+  if (!active?.panel?.onViewportClick) return;
   const point = imagePoint(event);
   if (!point) return;
 
@@ -449,7 +471,7 @@ async function viewportClick(event) {
     const hit = await rpc('view.pick', { x: point.x, y: point.y });
     // 빗나가면 좌표를 지어내지 않는다 — 패널이 「지면과 만나지 않는다」고 말한다.
     return active.panel.onViewportClick({
-      mode,
+      ctrl: event.ctrlKey,
       camId: null,
       ground: hit?.hit ? hit.world : null,
       car: hit?.actorId ? { id: hit.actorId } : null,
@@ -460,9 +482,9 @@ async function viewportClick(event) {
   if (camId === null) return toast('이 영상 소스는 카메라 자세를 알 수 없어 클릭할 수 없습니다.', 'err');
   const result = await api.simPick(
     camId, point.x, point.y, point.width, point.height,
-    mode === 'place' ? Number(el('simGroundZ').value) || 0 : 0,
+    Number(el('simGroundZ').value) || 0,
   );
-  await active.panel.onViewportClick({ mode, camId, ground: result.ground, car: result.car });
+  await active.panel.onViewportClick({ ctrl: event.ctrlKey, camId, ground: result.ground, car: result.car });
 }
 
 // --- 탭 -------------------------------------------------------------------
@@ -475,6 +497,8 @@ async function showTab(panelId) {
     button.classList.toggle('active', button.dataset.panel === panelId);
   }
   active = panels.find((entry) => entry.id === panelId) ?? null;
+  // 클릭 의미도 키보드 소유권도 **탭이 정한다** — 탭이 바뀌면 안내가 함께 바뀌어야 한다.
+  updateClickNote();
   // **연결 여부와 무관하게 활성화한다.** 저장 파일 목록은 이 PC 것이라 시뮬레이터가
   // 꺼져 있어도 읽을 수 있다 — 패널이 RPC 가 필요한 부분만 알아서 실패한다.
   await active?.panel?.onActivate?.();
@@ -499,10 +523,6 @@ el('simConnect').addEventListener('click', () => void connect().catch(reportErro
 el('simStreamStart').addEventListener('click', startStream);
 el('simStreamStop').addEventListener('click', stopStream);
 el('simStreamCam').addEventListener('change', () => { updateClickNote(); if (streaming) startStream(); });
-el('simClickMode').addEventListener('change', () => {
-  el('simClickMarker').hidden = true;
-  updateClickNote();
-});
 // --- 영상 위의 마우스 -------------------------------------------------------
 //
 // 한 벌의 몸짓이 둘로 갈린다: **끌면 회전, 그냥 누르면 클릭.** 그래서 클릭은 누를 때가
@@ -522,24 +542,32 @@ addEventListener('mouseup', (event) => {
 });
 
 /**
- * WASD 이동. **입력칸에 글자를 넣는 중이면 손대지 않는다** — 좌표를 타이핑하다 'a' 를
+ * 키보드. **입력칸에 글자를 넣는 중이면 손대지 않는다** — 좌표를 타이핑하다 'a' 를
  * 눌렀는데 카메라가 옆으로 가면 안 된다. 조합키(Ctrl·Alt·⌘)도 비켜 준다(브라우저 단축키).
  *
  * 키는 **물리 위치**(`event.code`)로 본다 — 한글 입력 상태에서 `event.key` 는 'ㅈ'·'ㅁ' 이라
  * `key` 로 판정하면 한글일 때 WASD 가 통째로 죽는다.
+ *
+ * ## 소유권은 **작업모드가 먼저**다 (마스터 지시 2026-08-08)
+ *
+ * 활성 탭이 작업모드면 `W A S D`·`Q E` 가 그 탭의 선택된 오브젝트로 간다. 처리하지 않은
+ * 키만 메인 뷰 시점으로 흘려보낸다 — 둘 다 받으면 한 번 누를 때 오브젝트와 시점이 함께
+ * 움직인다.
  */
 addEventListener('keydown', (event) => {
-  if (!isMainView() || event.ctrlKey || event.altKey || event.metaKey) return;
+  if (event.ctrlKey || event.altKey || event.metaKey) return;
   const tag = event.target?.tagName;
   if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || event.target?.isContentEditable) return;
-  if (viewControl.step(event.code)) event.preventDefault();
+  if (active?.panel?.onKey?.(event.code)) return event.preventDefault();
+  if (isMainView() && viewControl.step(event.code)) event.preventDefault();
 });
 // `passive:false` 여야 preventDefault 가 먹는다 — 아니면 휠이 페이지를 함께 스크롤한다.
 el('simViewport').addEventListener('wheel', (event) => { if (isMainView()) viewControl.onWheel(event); }, { passive: false });
-// 더블클릭 조준은 **클릭 모드가 꺼져 있을 때만** 받는다. 켜져 있으면 dblclick 이 오기 전에
-// 클릭이 이미 두 번 처리되어 차가 두 대 놓인다 — 억누르는 대신 겹치지 않게 둔다.
+// 더블클릭 조준은 **Ctrl 을 누르지 않았을 때만** 받는다. 브라우저는 dblclick 을 클릭 두 번
+// **뒤에** 주므로, Ctrl 을 누른 채 두 번 누르면 차가 이미 두 대 놓인 뒤에 시점이 돈다.
+// 억누르는 장치를 만드는 대신 겹치지 않게 둔다 — Ctrl 없는 클릭은 「선택」뿐이라 겹쳐도 무해하다.
 el('simViewport').addEventListener('dblclick', (event) => {
-  if (!isMainView() || el('simClickMode').value !== 'off') return;
+  if (!isMainView() || event.ctrlKey) return;
   const point = imagePoint(event);
   if (point) void viewControl.lookAt(point).catch(reportError);
 });

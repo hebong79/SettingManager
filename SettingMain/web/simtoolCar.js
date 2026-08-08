@@ -1,5 +1,6 @@
 import { CAR_TYPES, prefabName } from './simtoolCatalog.js';
 import { createFileBar } from './simtoolFileBar.js';
+import { createWorkMode } from './simtoolWorkMode.js';
 
 const el = (id) => document.getElementById(id);
 const num = (id) => Number(el(id).value);
@@ -42,6 +43,49 @@ export function createCarPanel(ctx) {
 
   const selected = () => cars.find((car) => car.id === el('carList').value);
 
+  /**
+   * 목록의 한 대를 고쳐 다시 그린다. **키보드 이동이 목록과 시뮬레이터를 함께** 움직이게
+   * 하는 자리다 — 시뮬레이터만 옮기면 「저장…」한 파일이 화면에서 본 자리와 달라진다.
+   */
+  function patch(id, change) {
+    cars = cars.map((entry) => (entry.id === id ? { ...entry, ...change } : entry));
+    bar.markDirty();
+    renderList(id);
+  }
+
+  /**
+   * 작업모드 — 켜면 `W A S D` 로 고른 차를 옮기고 `Q E` 로 돌린다.
+   *
+   * `car.setPosition` 은 **절대값**을 받으므로 지금 자리에 걸음을 더해 보낸다. 그 「지금
+   * 자리」는 이 목록이 갖고 있다 — 시뮬레이터에 매번 되묻지 않는 대신, 보낸 뒤 목록도
+   * 같이 고쳐 **둘이 갈리지 않게** 한다.
+   *
+   * ## ⚠ 고른 차가 시뮬레이터에 없을 수 있다
+   *
+   * 이 목록은 파일에서 열었을 수 있고 클릭 배치는 목록만 바꾼다 — 두 축이 다르다.
+   * 없는 `carNameId` 를 보내면 시뮬레이터가 거절하고, 그 오류를 **그대로 보여 준다**
+   * (「시뮬로 보내기」를 먼저 해야 한다는 뜻이다).
+   */
+  const work = createWorkMode({
+    toggleId: 'carWork',
+    noteId: 'carWorkNote',
+    stepId: 'carStep',
+    ctx,
+    target: selected,
+    describe: (car) => car.id,
+    async move(car, dx, dy) {
+      const pos = { x: (car.pos?.x ?? 0) + dx, y: (car.pos?.y ?? 0) + dy, z: car.pos?.z ?? 0 };
+      await ctx.rpc('car.setPosition', { carNameId: car.id, pos });
+      patch(car.id, { pos });
+    },
+    // `carStep` 하나가 m 이자 ° 다 — 프리셋 탭과 같은 규약이다.
+    async rotate(car, sign) {
+      const rotY = (car.rotY ?? 0) + sign * num('carStep');
+      await ctx.rpc('car.setRotationY', { carNameId: car.id, rotY });
+      patch(car.id, { rotY });
+    },
+  });
+
   async function fillCatalogs() {
     if (!el('carType').options.length) {
       el('carType').replaceChildren(...CAR_TYPES.map((entry) => {
@@ -74,6 +118,7 @@ export function createCarPanel(ctx) {
     el('carCountTag').textContent = `${cars.length}대`;
     bar.render();
     showSelected();
+    work.render();
   }
 
   function showSelected() {
@@ -123,7 +168,7 @@ export function createCarPanel(ctx) {
   const guard = (fn) => (...args) => void fn(...args).catch(ctx.reportError);
   const attempt = (fn) => () => { try { fn(); } catch (error) { ctx.reportError(error); } };
 
-  el('carList').addEventListener('change', showSelected);
+  el('carList').addEventListener('change', () => { showSelected(); work.render(); });
 
   el('carAdd').addEventListener('click', attempt(() => {
     const typed = el('carSelId').value.trim();
@@ -240,8 +285,10 @@ export function createCarPanel(ctx) {
   }));
 
   /**
-   * 영상 클릭. 껍데기가 이미 **월드 좌표로 바꿔서** 넘겨준다 — 여기서 기하를 다시 계산하지
-   * 않는다(`src/sim/simProject.ts` 한 곳).
+   * 영상 클릭 — **Ctrl+왼쪽은 추가, 그냥 왼쪽은 선택**(마스터 지시 2026-08-08).
+   *
+   * 껍데기가 이미 **월드 좌표로 바꿔서** 넘겨준다 — 여기서 기하를 다시 계산하지 않는다
+   * (`src/sim/simProject.ts` 한 곳).
    *
    * ## 고른 차가 이 목록에 없을 수 있다
    *
@@ -249,17 +296,10 @@ export function createCarPanel(ctx) {
    * 것일 수 있다. 두 축이 다르므로 id 가 없으면 **그렇다고 말한다** — 비슷한 것을 찾아
    * 골라 주면 사람은 맞는 차를 고른 줄 알게 된다.
    */
-  async function viewportClick({ mode, ground, car }) {
-    if (mode === 'select') {
-      if (!car) return ctx.toast('그 자리에서 차량을 찾지 못했습니다.', 'err');
-      if (!cars.some((entry) => entry.id === car.id)) {
-        return ctx.toast(`시뮬레이터의 ${car.id} 를 클릭했지만 이 목록에 없습니다 — 「시뮬에서 가져오기」로 현재 상태를 담을 수 있습니다.`, 'err');
-      }
-      el('carList').value = car.id;
-      showSelected();
-      return ctx.toast(`${car.id} 를 골랐습니다`, 'ok');
-    }
-    // 배치 — 지면과 만나지 않는 곳(하늘·수평선 위)을 찍으면 좌표가 없다.
+
+  /** **Ctrl+왼쪽 = 추가.** 목록만 바꾼다 — 시뮬레이터 반영은 「시뮬로 보내기」다. */
+  function placeAt(ground) {
+    // 지면과 만나지 않는 곳(하늘·수평선 위)을 찍으면 좌표가 없다.
     if (!ground) return ctx.toast('그 방향은 지면과 만나지 않습니다 — 지면 쪽을 클릭하세요.', 'err');
     el('carX').value = fmt(ground.x);
     el('carY').value = fmt(ground.y);
@@ -271,8 +311,29 @@ export function createCarPanel(ctx) {
     ctx.toast(`${id} 를 (${fmt(ground.x, 2)}, ${fmt(ground.y, 2)}) 에 추가했습니다 — 목록만 바뀝니다`, 'ok');
   }
 
+  /**
+   * **그냥 왼쪽 클릭 = 선택.** 작업모드일 때는 시뮬레이터에서도 고른다(`car.select`) —
+   * 이어서 키보드로 옮길 것이라, 화면과 시뮬레이터가 같은 차를 보고 있어야 한다.
+   */
+  async function selectAt(car) {
+    if (!car) return ctx.toast('그 자리에서 차량을 찾지 못했습니다.', 'err');
+    if (!cars.some((entry) => entry.id === car.id)) {
+      return ctx.toast(`시뮬레이터의 ${car.id} 를 클릭했지만 이 목록에 없습니다 — 「시뮬에서 가져오기」로 현재 상태를 담을 수 있습니다.`, 'err');
+    }
+    el('carList').value = car.id;
+    showSelected();
+    work.render();
+    if (work.isOn()) await ctx.rpc('car.select', { carNameId: car.id });
+    ctx.toast(`${car.id} 를 골랐습니다`, 'ok');
+  }
+
+  const viewportClick = ({ ctrl, ground, car }) => (ctrl ? placeAt(ground) : selectAt(car));
+
   return {
+    isWorkMode: work.isOn,
+    onKey: work.onKey,
     onViewportClick: viewportClick,
+    clickHelp: 'Ctrl+왼쪽 클릭 = 그 자리에 차량 추가(목록만) · 그냥 왼쪽 클릭 = 그 차량 선택.',
 
     async onActivate() {
       // 카탈로그는 이 PC 것이라 시뮬레이터가 꺼져 있어도 읽힌다. 목록은 자동으로

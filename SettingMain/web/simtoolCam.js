@@ -1,4 +1,5 @@
 import { createFileBar } from './simtoolFileBar.js';
+import { createWorkMode } from './simtoolWorkMode.js';
 
 const el = (id) => document.getElementById(id);
 const num = (id) => Number(el(id).value);
@@ -120,6 +121,53 @@ export function createCamPanel(ctx) {
     return ctx.cameras().find((camera) => String(camera.camId) === el('camList').value);
   }
 
+  /**
+   * 카메라를 그 자리로 옮긴다. **높이(z)는 지금 것을 지킨다** — 클릭이 맞힌 것은 지면이라
+   * 그 z 를 그대로 쓰면 카메라가 바닥에 처박힌다.
+   *
+   * ## 폴대는 함께 간다 — 별도 RPC 가 없다
+   *
+   * 마스터 지시는 「카메라 위치 이동(+폴대위치 이동)」이다. 시뮬레이터 RPC 82개 어디에도
+   * pole/mast 가 없다 — 폴대는 카메라 액터에 붙어 있어 `cam.setPosition` 이 함께 옮긴다는
+   * 것이 전제다. **없는 메서드를 지어 부르지 않는다**(라이브에서 확인한다).
+   */
+  async function moveTo(x, y) {
+    const camera = currentCamera();
+    if (!camera) throw new Error('카메라를 선택하세요');
+    await ctx.rpc('cam.setPosition', { camId: camera.camId, pos: { x, y, z: camera.pos?.z ?? 0 } });
+    await ctx.refreshCameras();
+  }
+
+  /**
+   * 작업모드 — 켜면 `W A S D` 로 카메라를 옮기고 `Q E` 로 pan 을 돌린다.
+   *
+   * 한 걸음은 **미터**라 PTZ 의 도(°)와 단위가 달라 입력칸을 따로 둔다(`camMoveStep`) —
+   * 한 칸으로 겹치면 2° 를 돌리려던 사람이 카메라를 2m 옮긴다.
+   */
+  const work = createWorkMode({
+    toggleId: 'camWork',
+    noteId: 'camWorkNote',
+    stepId: 'camMoveStep',
+    ctx,
+    target: currentCamera,
+    describe: (camera) => `${camera.name ?? 'Camera'} (#${camera.camId})`,
+    move: (camera, dx, dy) => moveTo((camera.pos?.x ?? 0) + dx, (camera.pos?.y ?? 0) + dy),
+    /**
+     * 회전은 pan 이다. 각도는 **`camStep`(°)** 을 읽는다 — 이동의 `camMoveStep` 은 미터라,
+     * 그것을 도로 쓰면 2° 를 돌리려던 사람이 카메라를 2m 옮긴다.
+     *
+     * `cam.setPTZ` 는 **생략한 축을 0·1 로 덮어쓰므로** 셋을 다 실어야 한다.
+     */
+    async rotate(camera, sign) {
+      if (!ptz) await readPtz();
+      if (!ptz) throw new Error('현재 PTZ 를 읽지 못했습니다');
+      const next = { ...ptz, pan: (ptz.pan ?? 0) + sign * num('camStep') };
+      await ctx.rpc('cam.setPTZ', { camId: camera.camId, pan: next.pan, tilt: next.tilt, zoom: next.zoom });
+      ptz = next;
+      showPtz();
+    },
+  });
+
   /** 슬라이더 범위는 사람이 정한다 — 값이 범위 밖이면 범위를 넓혀 **값을 자르지 않는다**. */
   function applyRanges() {
     for (const axis of AXES) {
@@ -145,6 +193,7 @@ export function createCamPanel(ctx) {
       el(axis.out).textContent = fmt(value);
     }
     syncing = false;
+    work.render();
   }
 
   function showPtz() {
@@ -295,7 +344,23 @@ export function createCamPanel(ctx) {
     await ctx.refreshCameras();
   }));
 
+  /**
+   * 영상 클릭 — **Ctrl+왼쪽이면 카메라를 그 자리로** 옮긴다(마스터 지시 2026-08-08).
+   * 그냥 클릭은 아무 일도 하지 않는다: 영상에서 카메라 자신을 집을 일이 없다.
+   */
+  async function viewportClick({ ctrl, ground }) {
+    if (!ctrl) return;
+    if (!ground) return ctx.toast('그 방향은 지면과 만나지 않습니다 — 지면 쪽을 클릭하세요.', 'err');
+    await moveTo(ground.x, ground.y);
+    ctx.toast(`카메라 #${camId()} 를 (${fmt(ground.x)}, ${fmt(ground.y)}) 로 옮겼습니다 — 높이는 그대로입니다`, 'ok');
+  }
+
   return {
+    isWorkMode: work.isOn,
+    onKey: work.onKey,
+    onViewportClick: viewportClick,
+    clickHelp: 'Ctrl+왼쪽 클릭 = 고른 카메라를 그 자리로 옮깁니다 (높이 유지 · 폴대 동행).',
+
     onCameras() {
       showPosition();
     },
