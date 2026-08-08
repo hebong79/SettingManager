@@ -37,6 +37,28 @@ export function createPresetPanel(ctx) {
   const selected = () => presets.find((preset) => String(preset.idx) === el('spList').value);
 
   /**
+   * 프리셋을 평면으로 **얼마만큼** 옮긴다.
+   *
+   * ## ⚠ `preset.move` 의 `delta` 는 시뮬레이터가 **조용히 무시한다**
+   *
+   * 실측(2026-08-08, 라이브 13510): `preset.move {idx:1, delta:{x:0,y:5}}` 는
+   * `{ok:true, x, y, z}` 를 주는데 **좌표가 그대로다.** `to` 는 정상 동작한다.
+   * 응답이 성공이라 화면은 실패를 알 수 없다 — 오류로 뜨지 않고 그냥 안 움직인다.
+   *
+   * 그래서 **지금 자리를 읽어 절대(`to`)로 보낸다.** 왕복이 한 번 늘지만, 그 대신
+   * 「눌렀는데 아무 일도 안 일어난다」가 사라진다. `preset.get` 이 주는 `offsetPos` 는
+   * `to` 와 같은 좌표계다(`/api/sim/rpc` 는 그대로 통과시킨다).
+   *
+   * **방향 패드도 같은 함정에 빠져 있었다** — 이 저장소가 처음부터 `delta` 를 보내고 있었다.
+   * 같은 자리를 쓰게 해서 한쪽만 고쳐지는 일이 없게 한다.
+   */
+  async function movePreset(idx, dx, dy) {
+    const now = await ctx.rpc('preset.get', { idx });
+    const at = now?.offsetPos ?? {};
+    await ctx.rpc('preset.move', { idx, to: { x: (at.x ?? 0) + dx, y: (at.y ?? 0) + dy } });
+  }
+
+  /**
    * 작업모드 — 켜면 `W A S D` 로 이 프리셋을 옮기고 `Q E` 로 돌린다.
    *
    * 회전은 **그룹 회전**(`deltaGroupRot`)이다. 면 회전(`deltaFaceRot`)은 그룹 안에서 각 면이
@@ -49,7 +71,7 @@ export function createPresetPanel(ctx) {
     ctx,
     target: selected,
     describe: (preset) => `${preset.idx}. ${preset.presetName ?? ''}`,
-    move: (preset, dx, dy) => ctx.rpc('preset.move', { idx: preset.idx, delta: { x: dx, y: dy } }),
+    move: (preset, dx, dy) => movePreset(preset.idx, dx, dy),
     // `spStep` 하나가 m 이자 ° 다 — 방향 패드가 이미 그렇게 쓰고 있어 규약을 나누지 않는다.
     rotate: (preset, sign) => ctx.rpc('preset.rotate', { idx: preset.idx, deltaGroupRot: sign * num('spStep') }),
   });
@@ -216,8 +238,9 @@ export function createPresetPanel(ctx) {
     if (el('spModeRotate').checked) {
       await ctx.rpc('preset.rotate', { idx: preset.idx, deltaFaceRot: dx * step, deltaGroupRot: dy * step });
     } else {
-      // RPC 계에서 지면은 x·y 다(높이가 z).
-      await ctx.rpc('preset.move', { idx: preset.idx, delta: { x: dx * step, y: dy * step } });
+      // RPC 계에서 지면은 x·y 다(높이가 z). ⚠ `delta` 는 시뮬레이터가 조용히 무시하므로
+      // `movePreset` 이 지금 자리를 읽어 절대값으로 보낸다 — 그 사유는 거기 적혀 있다.
+      await movePreset(preset.idx, dx * step, dy * step);
     }
   }
 

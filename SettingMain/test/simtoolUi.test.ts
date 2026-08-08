@@ -257,7 +257,14 @@ describe('세 툴이 같은 형태다', () => {
   it('저장 시 축 변환을 서버에 맡긴다', async () => {
     expect(await read('simtoolFileBar.js')).toContain('ctx.serializeFile(');
     for (const { script } of FILE_TOOLS) {
-      expect(await read(script), script).not.toContain('offsetPos');
+      // 막는 것은 **화면이 파일 모양 행을 조립하는 것**이다 — `offsetPos:` 를 키로 쓰는 순간
+      // 축 규약(Unity Y-up)이 화면에도 한 벌 생긴다.
+      //
+      // ⚠ **읽는 것까지 막지는 않는다.** 시뮬레이터의 `preset.get` 응답이 자기 필드를
+      // 하필 `offsetPos` 로 부르는데, 그 값은 이미 **RPC 계**다(`/api/sim/rpc` 는 그대로
+      // 통과시킨다). 이름이 같을 뿐 파일 모양이 아니므로 여기서 막을 이유가 없다 —
+      // 막으면 프리셋 이동이 지금 자리를 못 읽는다(`simtoolPreset.js` 의 `movePreset`).
+      expect(await read(script), script).not.toMatch(/offsetPos\s*:/);
     }
   });
 
@@ -619,6 +626,26 @@ describe('탭별 Ctrl+클릭', () => {
     // ⚠ 이 목록은 **파일**에서 왔다. 시뮬레이터가 비어 있으면 훑는 것만으로 매번 오류가
     // 나므로, "지금 시뮬레이터를 몰고 있다"는 선언(작업모드)일 때만 두드린다.
     expect(handler.slice(0, 500)).toContain('work.isOn()');
+  });
+
+  /**
+   * ⚠ **`preset.move` 의 `delta` 는 시뮬레이터가 조용히 무시한다** (실측 2026-08-08:
+   * `{ok:true, x, y, z}` 를 주면서 좌표가 그대로다). 응답이 성공이라 화면은 실패를 알 수
+   * 없다 — 오류로 뜨지 않고 그냥 안 움직인다.
+   *
+   * 그래서 이동은 **전부** 지금 자리를 읽어 `to` 로 보낸다. 키보드도 방향 패드도 같은
+   * 자리를 쓴다 — 한쪽만 고쳐지면 그 쪽이 다시 조용히 죽는다.
+   */
+  it('프리셋 이동은 to 로 보낸다 — delta 는 시뮬레이터가 조용히 무시한다', async () => {
+    const source = stripComments(await read('simtoolPreset.js'));
+    expect(source).not.toMatch(/preset\.move'[\s\S]{0,120}delta:/);
+    const mover = source.slice(source.indexOf('async function movePreset('));
+    expect(mover.slice(0, 400)).toContain("preset.get'");
+    expect(mover.slice(0, 400)).toMatch(/preset\.move'[\s\S]{0,120}to:/);
+    // 방향 패드도 같은 자리를 쓴다 — 자기 몫의 `preset.move` 를 따로 부르지 않는다.
+    const nudge = source.slice(source.indexOf('async function nudge('), source.indexOf("el('spLeft')"));
+    expect(nudge).toContain('movePreset(');
+    expect(nudge).not.toContain("preset.move'");
   });
 
   /** 지시 4. Ctrl 이면 추가, 아니면 선택 — 한 줄로 갈린다. */
